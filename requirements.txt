@@ -1,0 +1,9 @@
+yfinance
+pandas
+pydantic
+requests
+rapidfuzz
+sumy
+nltk
+google-genai
+python-dotenv
