@@ -1,11 +1,11 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Info, LogOut } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Check, ChevronLeft, ChevronRight, Info, Plus } from "lucide-react";
 import { MouseEvent, useEffect, useMemo, useState } from "react";
+import { ProfileMenu } from "@/components/auth/ProfileMenu";
 import type { Candle, Company, MarketIndex, MarketPayload } from "@/lib/types";
 import { formatCompact, formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
-import { supabase } from "@/lib/supabase";
+import { addCompanyToPortfolio, getPortfolioItems } from "@/lib/portfolio";
 
 type RangeKey = "1D" | "1W" | "1M" | "3M" | "6M" | "1Y" | "All";
 
@@ -241,17 +241,25 @@ function SupportPanel({ index }: { index: MarketIndex }) {
 }
 
 export function DashboardClient() {
-  const router = useRouter();
   const [payload, setPayload] = useState<MarketPayload | null>(null);
   const [activeKey, setActiveKey] = useState<"nifty50" | "sensex">("nifty50");
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [range, setRange] = useState<RangeKey>("3M");
   const [page, setPage] = useState(0);
+  const [portfolioSymbols, setPortfolioSymbols] = useState<string[]>([]);
+  const [portfolioMessage, setPortfolioMessage] = useState<string | null>(null);
+  const [savingSymbol, setSavingSymbol] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/data/market.json", { cache: "no-store" })
       .then((response) => response.json())
       .then((data: MarketPayload) => setPayload(data));
+  }, []);
+
+  useEffect(() => {
+    getPortfolioItems().then(({ items }) => {
+      setPortfolioSymbols(items.map((item) => item.symbol));
+    });
   }, []);
 
   const activeIndex = useMemo(() => {
@@ -278,9 +286,22 @@ export function DashboardClient() {
   const pageCount = Math.max(1, Math.ceil(activeIndex.companies.length / pageSize));
   const visibleCompanies = activeIndex.companies.slice(page * pageSize, page * pageSize + pageSize);
 
-  async function handleLogout() {
-    await supabase?.auth.signOut();
-    router.push("/");
+  async function handleAddToPortfolio(company: Company) {
+    if (!activeIndex) return;
+
+    setSavingSymbol(company.symbol);
+    setPortfolioMessage(null);
+
+    const { error } = await addCompanyToPortfolio(company, activeIndex);
+    setSavingSymbol(null);
+
+    if (error) {
+      setPortfolioMessage(error);
+      return;
+    }
+
+    setPortfolioSymbols((current) => Array.from(new Set([...current, company.symbol])));
+    setPortfolioMessage(`${company.name} added to your portfolio.`);
   }
 
   return (
@@ -305,15 +326,7 @@ export function DashboardClient() {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              aria-label="Logout"
-              title="Logout"
-              className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+            <ProfileMenu />
           </div>
         </header>
 
@@ -394,9 +407,14 @@ export function DashboardClient() {
               </button>
             )}
           </div>
+          {portfolioMessage && (
+            <div className="border-b border-slate-200 bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-800">
+              {portfolioMessage}
+            </div>
+          )}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-left">
+            <table className="w-full min-w-[860px] border-collapse text-left">
               <thead className="bg-slate-50 text-xs uppercase text-slate-400">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Company</th>
@@ -404,29 +422,51 @@ export function DashboardClient() {
                   <th className="px-5 py-3 text-right font-semibold">Market Price</th>
                   <th className="px-5 py-3 text-right font-semibold">Day Change</th>
                   <th className="px-5 py-3 text-right font-semibold">Sector</th>
+                  <th className="px-5 py-3 text-right font-semibold">Portfolio</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleCompanies.map((company) => (
-                  <tr
-                    key={company.symbol}
-                    onClick={() => setSelectedCompany(company)}
-                    className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${
-                      selectedCompany?.symbol === company.symbol ? "bg-emerald-50/60" : ""
-                    }`}
-                  >
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-slate-800">{company.name}</div>
-                      <div className="font-mono text-xs text-slate-400">{company.symbol}</div>
-                    </td>
-                    <td className="px-5 py-4 text-right font-mono">{formatCompact(company.marketCap)}</td>
-                    <td className="px-5 py-4 text-right font-mono font-semibold">{formatCurrency(company.price)}</td>
-                    <td className={`px-5 py-4 text-right font-mono ${(company.changePercent || 0) >= 0 ? "text-[#079b83]" : "text-[#d65a50]"}`}>
-                      {formatPercent(company.changePercent)}
-                    </td>
-                    <td className="px-5 py-4 text-right text-sm font-medium text-slate-500">{company.sector}</td>
-                  </tr>
-                ))}
+                {visibleCompanies.map((company) => {
+                  const added = portfolioSymbols.includes(company.symbol);
+                  return (
+                    <tr
+                      key={company.symbol}
+                      onClick={() => setSelectedCompany(company)}
+                      className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${
+                        selectedCompany?.symbol === company.symbol ? "bg-emerald-50/60" : ""
+                      }`}
+                    >
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-slate-800">{company.name}</div>
+                        <div className="font-mono text-xs text-slate-400">{company.symbol}</div>
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono">{formatCompact(company.marketCap)}</td>
+                      <td className="px-5 py-4 text-right font-mono font-semibold">{formatCurrency(company.price)}</td>
+                      <td className={`px-5 py-4 text-right font-mono ${(company.changePercent || 0) >= 0 ? "text-[#079b83]" : "text-[#d65a50]"}`}>
+                        {formatPercent(company.changePercent)}
+                      </td>
+                      <td className="px-5 py-4 text-right text-sm font-medium text-slate-500">{company.sector}</td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={added || savingSymbol === company.symbol}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleAddToPortfolio(company);
+                          }}
+                          className={`inline-flex h-9 items-center justify-center gap-2 rounded border px-3 text-xs font-semibold transition-colors ${
+                            added
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-[#079b83] bg-[#079b83] text-white hover:bg-[#067c6c]"
+                          } disabled:cursor-not-allowed`}
+                        >
+                          {added ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                          {added ? "Added" : savingSymbol === company.symbol ? "Adding" : "Add"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

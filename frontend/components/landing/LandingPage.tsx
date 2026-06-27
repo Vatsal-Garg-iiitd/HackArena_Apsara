@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BarChart3, CheckCircle2, LineChart, LockKeyhole, LogOut, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, CheckCircle2, LineChart, LockKeyhole, ShieldCheck, Sparkles } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
+import { ProfileMenu } from "@/components/auth/ProfileMenu";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
 
@@ -42,12 +43,6 @@ export function LandingPage() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  async function handleLogout() {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-    setUser(null);
-  }
-
   return (
     <main className="min-h-screen bg-white text-slate-800">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -74,15 +69,7 @@ export function LandingPage() {
                 >
                   Dashboard
                 </Link>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  aria-label="Logout"
-                  title="Logout"
-                  className="grid h-9 w-9 place-items-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
+                <ProfileMenu />
               </>
             ) : (
               <>
