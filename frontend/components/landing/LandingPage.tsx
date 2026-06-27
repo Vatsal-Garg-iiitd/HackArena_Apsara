@@ -44,8 +44,8 @@ export function LandingPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-white text-slate-800">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <main className="soft-page min-h-screen text-slate-800">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 md:px-8">
           <Link href="/" className="flex items-center gap-2">
             <span className="grid h-9 w-9 place-items-center rounded bg-slate-900 text-white">
@@ -124,7 +124,7 @@ export function LandingPage() {
         </div>
 
         <div id="markets" className="flex items-center">
-          <section className="w-full rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-xl">
+          <section className="w-full rounded-lg border border-slate-800 bg-slate-950 p-4 text-white shadow-xl shadow-emerald-950/10">
             <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Market pulse</p>
@@ -154,11 +154,13 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="features" className="border-y border-slate-200 bg-slate-50">
+      <section id="features" className="soft-band border-y border-slate-200">
         <div className="mx-auto grid max-w-7xl gap-4 px-4 py-10 md:grid-cols-3 md:px-8">
           {features.map(([title, body, Icon]) => (
-            <article key={title as string} className="rounded-lg border border-slate-200 bg-white p-5">
-              <Icon className="h-5 w-5 text-emerald-600" />
+            <article key={title as string} className="surface-card rounded-lg border p-5">
+              <span className="grid h-9 w-9 place-items-center rounded bg-emerald-50 text-emerald-700">
+                <Icon className="h-5 w-5" />
+              </span>
               <h2 className="mt-4 text-base font-semibold text-slate-900">{title as string}</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">{body as string}</p>
             </article>

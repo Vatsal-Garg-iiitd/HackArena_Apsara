@@ -17,7 +17,7 @@ body {
 
 body {
   margin: 0;
-  background: #ffffff;
+  background: #f8fafc;
   color: #32394a;
 }
 
@@ -41,4 +41,35 @@ body {
 
 .number {
   font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .soft-page {
+    background:
+      linear-gradient(180deg, #f8fbff 0%, #ffffff 34%, #f6fbf8 100%);
+  }
+
+  .surface-panel {
+    border-color: #dfe7ef;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 253, 255, 0.94));
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.06), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  }
+
+  .surface-card {
+    border-color: #dde8ee;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 250, 0.94));
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
+  }
+
+  .soft-band {
+    background:
+      linear-gradient(135deg, rgba(236, 253, 245, 0.72), rgba(239, 246, 255, 0.72));
+  }
+
+  .soft-table-head {
+    background:
+      linear-gradient(90deg, rgba(236, 253, 245, 0.72), rgba(239, 246, 255, 0.72));
+  }
 }

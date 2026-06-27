@@ -8,6 +8,49 @@ import { getPortfolioItems, PortfolioItem, removePortfolioItem } from "@/lib/por
 import { formatCompact, formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
 import type { Candle } from "@/lib/types";
 
+type PortfolioPrediction = {
+  derived_parameters: {
+    S: number;
+    K: number;
+    r: number;
+    sigma: number;
+    option_type: "call" | "put";
+    num_paths: number;
+    lookback_days: number;
+  };
+  predictions: {
+    horizon_days: number;
+    methods: {
+      monte_carlo: { price: number };
+      fosm: { price: number };
+      pem: { price: number };
+      taguchi: { price: number };
+    };
+    average_price: number;
+  }[];
+};
+
+type StockSentiment = {
+  source: string;
+  trend_source: string;
+  summary: {
+    label: "Positive" | "Negative" | "Neutral";
+    score: number;
+    mentions: number;
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  mentions: {
+    title: string;
+    subreddit: string;
+    url: string;
+    score: number;
+    comments: number;
+    sentiment: "Positive" | "Negative" | "Neutral";
+  }[];
+};
+
 function usableCandles(candles: Candle[]) {
   return candles.filter((candle) => candle.close !== null && candle.high !== null && candle.low !== null && candle.open !== null);
 }
@@ -46,7 +89,7 @@ function PortfolioChart({ candles }: { candles: Candle[] }) {
 
 function DetailMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-slate-200 p-3">
+    <div className="rounded border border-slate-200 bg-white/80 p-3 shadow-sm">
       <div className="text-xs font-medium uppercase text-slate-400">{label}</div>
       <div className="mt-1 font-mono text-sm font-semibold text-slate-800">{value}</div>
     </div>
@@ -56,6 +99,12 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 export function PortfolioClient() {
   const [items, setItems] = useState<PortfolioItem[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [prediction, setPrediction] = useState<PortfolioPrediction | null>(null);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [predictionLoading, setPredictionLoading] = useState(false);
+  const [sentiment, setSentiment] = useState<StockSentiment | null>(null);
+  const [sentimentError, setSentimentError] = useState<string | null>(null);
+  const [sentimentLoading, setSentimentLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
@@ -79,6 +128,99 @@ export function PortfolioClient() {
     return items.find((item) => item.symbol === selectedSymbol) ?? items[0] ?? null;
   }, [items, selectedSymbol]);
 
+  useEffect(() => {
+    if (!selectedItem) {
+      setPrediction(null);
+      return;
+    }
+
+    let active = true;
+    setPredictionLoading(true);
+    setPredictionError(null);
+
+    fetch("/api/portfolio/predict", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        symbol: selectedItem.symbol,
+        name: selectedItem.name,
+        price: selectedItem.spot_price ?? selectedItem.price,
+        strike_price: selectedItem.strike_price,
+        risk_free_rate: selectedItem.risk_free_rate,
+        option_type: "call",
+        num_paths: 10000,
+        stock_snapshot: selectedItem.stock_snapshot
+      })
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Prediction failed.");
+        return data as PortfolioPrediction;
+      })
+      .then((data) => {
+        if (active) setPrediction(data);
+      })
+      .catch((error: Error) => {
+        if (active) {
+          setPrediction(null);
+          setPredictionError(error.message);
+        }
+      })
+      .finally(() => {
+        if (active) setPredictionLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setSentiment(null);
+      return;
+    }
+
+    let active = true;
+    setSentimentLoading(true);
+    setSentimentError(null);
+
+    fetch("/api/portfolio/sentiment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        symbol: selectedItem.symbol,
+        ticker: selectedItem.ticker,
+        name: selectedItem.name
+      })
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Sentiment fetch failed.");
+        return data as StockSentiment;
+      })
+      .then((data) => {
+        if (active) setSentiment(data);
+      })
+      .catch((error: Error) => {
+        if (active) {
+          setSentiment(null);
+          setSentimentError(error.message);
+        }
+      })
+      .finally(() => {
+        if (active) setSentimentLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedItem]);
+
   async function handleRemove(symbol: string) {
     setRemovingSymbol(symbol);
     const { error } = await removePortfolioItem(symbol);
@@ -98,7 +240,7 @@ export function PortfolioClient() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-700 md:px-8">
+    <main className="soft-page min-h-screen px-4 py-5 text-slate-700 md:px-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <div>
@@ -113,15 +255,15 @@ export function PortfolioClient() {
         </header>
 
         <section className="mb-5 grid gap-4 md:grid-cols-3">
-          <article className="rounded-lg border border-slate-200 bg-white p-4">
+          <article className="surface-card rounded-lg border p-4">
             <div className="text-sm text-slate-400">Stocks added</div>
             <div className="mt-2 font-mono text-2xl font-semibold text-slate-800">{items.length}</div>
           </article>
-          <article className="rounded-lg border border-slate-200 bg-white p-4">
+          <article className="surface-card rounded-lg border p-4">
             <div className="text-sm text-slate-400">Combined latest price</div>
             <div className="mt-2 font-mono text-2xl font-semibold text-slate-800">{formatCurrency(summary.investedValue)}</div>
           </article>
-          <article className="rounded-lg border border-slate-200 bg-white p-4">
+          <article className="surface-card rounded-lg border p-4">
             <div className="text-sm text-slate-400">Positive movers</div>
             <div className="mt-2 font-mono text-2xl font-semibold text-emerald-600">{summary.gainers}</div>
           </article>
@@ -135,7 +277,7 @@ export function PortfolioClient() {
 
         {selectedItem && (
           <section className="mb-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="surface-panel rounded-lg border">
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
                 <div>
                   <div className="font-mono text-sm text-slate-500">{selectedItem.symbol}</div>
@@ -152,32 +294,120 @@ export function PortfolioClient() {
               <div className="px-4 py-3">
                 <PortfolioChart candles={selectedItem.stock_snapshot?.candles ?? []} />
               </div>
+              <div className="border-t border-slate-200 px-4 py-4">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Predicted Option Price</h2>
+                {predictionLoading ? (
+                  <div className="rounded border border-slate-200 bg-white/80 px-3 py-4 text-sm text-slate-500">
+                    Calculating method predictions...
+                  </div>
+                ) : predictionError ? (
+                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    {predictionError}
+                  </div>
+                ) : prediction ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {prediction.predictions.map((row) => (
+                      <div key={row.horizon_days} className="rounded border border-slate-200 bg-white/85 p-3 shadow-sm">
+                        <div className="mb-3 flex items-center justify-between">
+                          <span className="text-sm font-semibold text-slate-700">Day {row.horizon_days}</span>
+                          <span className="font-mono text-lg font-semibold text-emerald-700">
+                            {formatCurrency(row.average_price)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                          <span className="rounded bg-slate-50 px-2 py-1">MC {formatCurrency(row.methods.monte_carlo.price)}</span>
+                          <span className="rounded bg-slate-50 px-2 py-1">FOSM {formatCurrency(row.methods.fosm.price)}</span>
+                          <span className="rounded bg-slate-50 px-2 py-1">PEM {formatCurrency(row.methods.pem.price)}</span>
+                          <span className="rounded bg-slate-50 px-2 py-1">Taguchi {formatCurrency(row.methods.taguchi.price)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded border border-slate-200 bg-white/80 px-3 py-4 text-sm text-slate-500">
+                    Select a portfolio stock to calculate predictions.
+                  </div>
+                )}
+              </div>
             </div>
 
             <aside className="space-y-5">
-              <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <section className="surface-card rounded-lg border p-4">
                 <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  Stock Model <Activity className="h-4 w-4 text-slate-400" />
+                  Sentiment Analysis <Activity className="h-4 w-4 text-slate-400" />
                 </h2>
+                {sentimentLoading ? (
+                  <div className="rounded border border-slate-200 bg-white/80 px-3 py-4 text-sm text-slate-500">
+                    Reading recent stock discussions...
+                  </div>
+                ) : sentimentError ? (
+                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    {sentimentError}
+                  </div>
+                ) : sentiment ? (
+                  <div className="space-y-4">
+                    <div className="rounded border border-slate-200 bg-white/85 p-3 shadow-sm">
+                      <div className="text-xs font-medium uppercase text-slate-400">Overall mood</div>
+                      <div
+                        className={`mt-1 text-2xl font-semibold ${
+                          sentiment.summary.label === "Positive"
+                            ? "text-emerald-700"
+                            : sentiment.summary.label === "Negative"
+                              ? "text-red-600"
+                              : "text-slate-700"
+                        }`}
+                      >
+                        {sentiment.summary.label}
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                        <span className="rounded bg-emerald-50 px-2 py-2 text-emerald-700">{sentiment.summary.positive} Positive</span>
+                        <span className="rounded bg-slate-50 px-2 py-2 text-slate-600">{sentiment.summary.neutral} Neutral</span>
+                        <span className="rounded bg-red-50 px-2 py-2 text-red-600">{sentiment.summary.negative} Negative</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {sentiment.mentions.map((mention) => (
+                        <a
+                          key={`${mention.url}-${mention.title}`}
+                          href={mention.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded border border-slate-200 bg-white/85 p-3 text-sm shadow-sm hover:border-emerald-200 hover:bg-emerald-50/40"
+                        >
+                          <div className="line-clamp-2 font-medium text-slate-700">{mention.title}</div>
+                          <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+                            <span>r/{mention.subreddit}</span>
+                            <span>{mention.sentiment}</span>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+
+                    <p className="text-xs leading-5 text-slate-400">
+                      Based on recent Reddit posts for this stock. Google Trends/pytrends can be wired through a Python service when available.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded border border-slate-200 bg-white/80 px-3 py-4 text-sm text-slate-500">
+                    Select a portfolio stock to load sentiment.
+                  </div>
+                )}
+              </section>
+              <section className="surface-card rounded-lg border p-4">
+                <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Stock Snapshot</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <DetailMetric label="Company" value={selectedItem.name} />
-                  <DetailMetric label="Sector" value={selectedItem.sector ?? "NA"} />
                   <DetailMetric label="Spot" value={formatCurrency(selectedItem.spot_price ?? selectedItem.price)} />
                   <DetailMetric label="Strike" value={formatNumber(selectedItem.strike_price)} />
                   <DetailMetric label="Risk-free" value={selectedItem.risk_free_rate === null ? "NA" : formatPercent(selectedItem.risk_free_rate * 100)} />
-                  <DetailMetric label="Expiry" value={selectedItem.expiry_date ?? "NA"} />
-                  <DetailMetric label="Revenue" value={selectedItem.revenue === null ? "Not in feed" : formatCompact(selectedItem.revenue)} />
                   <DetailMetric label="Health" value={selectedItem.health_status ?? selectedItem.config?.healthStatus ?? "Neutral"} />
                 </div>
-                <p className="mt-4 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-500">
-                  {selectedItem.health_reason ?? selectedItem.config?.healthReason ?? "Health is derived from the available price history."}
-                </p>
               </section>
             </aside>
           </section>
         )}
 
-        <section className="rounded-lg border border-slate-200 bg-white">
+        <section className="surface-panel rounded-lg border">
           <div className="border-b border-slate-200 px-5 py-4">
             <h2 className="text-lg font-semibold text-slate-800">Portfolio holdings</h2>
             <p className="text-sm text-slate-400">Saved per user in Supabase for future computation and calculations.</p>
@@ -199,7 +429,7 @@ export function PortfolioClient() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[920px] border-collapse text-left">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-400">
+                <thead className="soft-table-head text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Stock</th>
                     <th className="px-5 py-3 text-right font-semibold">Index</th>

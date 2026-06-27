@@ -100,8 +100,8 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10 text-slate-800">
-      <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+    <main className="soft-page grid min-h-screen place-items-center px-4 py-10 text-slate-800">
+      <section className="surface-panel w-full max-w-md rounded-lg border p-6">
         <Link href="/" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900">
           <ArrowLeft className="h-4 w-4" />
           Back to home
@@ -129,7 +129,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
               <input
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#079b83]"
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white/90 px-3 text-sm outline-none focus:border-[#079b83] focus:bg-white"
                 type="text"
                 required
               />
@@ -140,7 +140,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
             <input
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#079b83]"
+              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white/90 px-3 text-sm outline-none focus:border-[#079b83] focus:bg-white"
               type="email"
               required
             />
@@ -150,7 +150,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
             <input
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#079b83]"
+              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white/90 px-3 text-sm outline-none focus:border-[#079b83] focus:bg-white"
               type="password"
               minLength={6}
               required

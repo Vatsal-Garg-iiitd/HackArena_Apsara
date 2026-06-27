@@ -226,7 +226,7 @@ function SupportPanel({ index }: { index: MarketIndex }) {
   ];
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
+    <section className="surface-card rounded-lg border p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Support / Resistance</h2>
       <div className="space-y-3">
         {levels.map(([label, value]) => (
@@ -305,7 +305,7 @@ export function DashboardClient() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-700 md:px-8">
+    <main className="soft-page min-h-screen px-4 py-5 text-slate-700 md:px-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <div>
@@ -331,7 +331,7 @@ export function DashboardClient() {
         </header>
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="rounded-lg border border-slate-200 bg-white">
+          <div className="surface-panel rounded-lg border">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
               <div>
                 <div className="text-sm text-slate-500">{selectedCompany ? selectedCompany.symbol : activeIndex.symbol}</div>
@@ -368,7 +368,7 @@ export function DashboardClient() {
           </div>
 
           <aside className="space-y-5">
-            <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <section className="surface-card rounded-lg border p-4">
               <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Performance <Info className="h-4 w-4 text-slate-400" />
               </h2>
@@ -395,7 +395,7 @@ export function DashboardClient() {
           </aside>
         </section>
 
-        <section className="mt-5 rounded-lg border border-slate-200 bg-white">
+        <section className="surface-panel mt-5 rounded-lg border">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div>
               <h2 className="text-lg font-semibold text-slate-800">{activeIndex.name} Companies</h2>
@@ -415,7 +415,7 @@ export function DashboardClient() {
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse text-left">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-400">
+              <thead className="soft-table-head text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Company</th>
                   <th className="px-5 py-3 text-right font-semibold">Market Cap</th>

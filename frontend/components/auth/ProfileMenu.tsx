@@ -33,13 +33,13 @@ export function ProfileMenu() {
         onClick={() => setOpen((current) => !current)}
         aria-label="Open profile menu"
         title="Profile"
-        className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+        className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 bg-white/90 text-slate-600 shadow-sm hover:bg-emerald-50 hover:text-slate-950"
       >
         <UserCircle className="h-5 w-5" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-12 z-30 w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+        <div className="surface-panel absolute right-0 top-12 z-30 w-48 rounded-lg border p-1">
           <Link
             href="/profile"
             onClick={() => setOpen(false)}
