@@ -7,3 +7,13 @@ sumy
 nltk
 google-genai
 python-dotenv
+numpy
+scipy
+statsmodels
+beautifulsoup4
+lxml
+structlog
+psycopg2-binary
+asyncpg
+vectorbt
+scikit-learn

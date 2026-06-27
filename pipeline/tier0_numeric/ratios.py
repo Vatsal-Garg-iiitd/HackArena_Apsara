@@ -1,88 +1,114 @@
-import yfinance as yf
 import pandas as pd
+import logging
 from typing import Optional
 from pipeline.schemas.tier0 import SolvencyMetrics
+from pipeline.infra.data_vendor import vendor
 
-def get_solvency_metrics(ticker_symbol: str) -> SolvencyMetrics:
-    ticker = yf.Ticker(ticker_symbol)
-    balance_sheet = ticker.quarterly_balance_sheet
-    financials = ticker.quarterly_financials
-    cash_flow = ticker.quarterly_cash_flow
-    
-    def empty_metrics():
-        return SolvencyMetrics(
-            current_ratio=0.0, quick_ratio=0.0, cash_ratio=0.0, op_cash_flow_ratio=0.0, 
-            working_cap=0.0, debt_equity=0.0, debt_ratio=0.0, equity_ratio=0.0, 
-            debt_capital=0.0, interest_coverage=0.0, fixed_charge_coverage=0.0, 
-            cash_flow_debt=0.0, trend_8q=[]
-        )
+logger = logging.getLogger(__name__)
+
+
+def get_solvency_metrics(ticker_symbol: str) -> Optional[SolvencyMetrics]:
+    """
+    Computes solvency & liquidity metrics using the data vendor abstraction.
+    Returns None if critical data is unavailable — never returns 0.0 fallbacks.
+    """
+    financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
+
+    if financials_data is None:
+        logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=solvency | reason=no_financial_data")
+        return None
+
+    balance_sheet = financials_data["balance_sheet"]
+    financials = financials_data["financials"]
+    cash_flow = financials_data["cash_flow"]
 
     if balance_sheet is None or balance_sheet.empty:
-        return empty_metrics()
-    
+        logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=solvency | reason=empty_balance_sheet")
+        return None
+
     try:
-        def safe_get(df, row_name, default=0.0):
-            if df is not None and not df.empty and row_name in df.index:
-                val = df.loc[row_name].iloc[0]
-                return float(val) if pd.notna(val) else default
+        def safe_get(df: pd.DataFrame, row_names: list, default=None) -> Optional[float]:
+            """Returns first valid value from list of concept aliases."""
+            if df is not None and not df.empty:
+                for name in row_names:
+                    if name in df.index:
+                        val = df.loc[name]
+                        if isinstance(val, pd.Series):
+                            val = val.iloc[0]
+                        return float(val) if pd.notna(val) else default
             return default
 
-        current_assets = safe_get(balance_sheet, "Current Assets", 0)
-        current_liabilities = safe_get(balance_sheet, "Current Liabilities", 1)
-        inventory = safe_get(balance_sheet, "Inventory", 0)
-        cash_and_equiv = safe_get(balance_sheet, "Cash And Cash Equivalents", 0)
-        total_assets = safe_get(balance_sheet, "Total Assets", 1)
-        total_liabilities = safe_get(balance_sheet, "Total Liabilities", 0)
-        total_debt = safe_get(balance_sheet, "Total Debt", 0)
-        total_equity = safe_get(balance_sheet, "Stockholders Equity", 1)
-        
-        ebit = safe_get(financials, "EBIT", 0)
-        interest_expense = abs(safe_get(financials, "Interest Expense", 1))
-        
-        op_cash_flow = safe_get(cash_flow, "Operating Cash Flow", 0)
-        
-        # Calculations
-        current_ratio = current_assets / current_liabilities if current_liabilities != 0 else 0.0
-        quick_ratio = (current_assets - inventory) / current_liabilities if current_liabilities != 0 else 0.0
-        cash_ratio = cash_and_equiv / current_liabilities if current_liabilities != 0 else 0.0
-        op_cash_flow_ratio = op_cash_flow / current_liabilities if current_liabilities != 0 else 0.0
-        working_cap = current_assets - current_liabilities
-        
-        debt_equity = total_debt / total_equity if total_equity != 0 else 0.0
-        debt_ratio = total_debt / total_assets if total_assets != 0 else 0.0
-        equity_ratio = total_equity / total_assets if total_assets != 0 else 0.0
-        debt_capital = total_debt / (total_debt + total_equity) if (total_debt + total_equity) != 0 else 0.0
-        
-        interest_coverage = ebit / interest_expense if interest_expense != 0 else 0.0
-        # Simplistic fixed charge coverage proxy (assuming fixed charges ~ interest expense)
-        fixed_charge_coverage = ebit / interest_expense if interest_expense != 0 else 0.0
-        cash_flow_debt = op_cash_flow / total_debt if total_debt != 0 else 0.0
-        
+        current_assets = safe_get(balance_sheet, ["Current Assets"])
+        current_liabilities = safe_get(balance_sheet, ["Current Liabilities"])
+        inventory = safe_get(balance_sheet, ["Inventory"])
+        cash_and_equiv = safe_get(balance_sheet, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments", "Cash"])
+        total_assets = safe_get(balance_sheet, ["Total Assets", "Assets"])
+        total_liabilities = safe_get(balance_sheet, ["Total Liabilities", "Liabilities"])
+        total_debt = safe_get(balance_sheet, ["Total Debt", "Long-term Debt", "Long Term Debt"])
+        total_equity = safe_get(balance_sheet, ["Stockholders Equity", "Equity", "Common Stock Equity"])
+
+        ebit = safe_get(financials, ["EBIT", "Operating Income/Loss", "Operating Income"])
+        interest_expense_raw = safe_get(financials, ["Interest Expense", "Interest Expense/Benefit"])
+        interest_expense = abs(interest_expense_raw) if interest_expense_raw is not None else None
+
+        op_cash_flow = safe_get(cash_flow, ["Operating Cash Flow", "Net Cash Flow From Operating Activities", "Net Cash Flow From Operating Activities, Continuing"])
+
+        # Critical fields check — if we can't compute the basic ratios, abort
+        if current_assets is None or current_liabilities is None:
+            logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=current_ratio | reason=missing_ca_or_cl")
+            return None
+
+        # Calculations — use None instead of 0.0 when denominator is missing/zero
+        def safe_divide(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
+            if numerator is None or denominator is None or denominator == 0:
+                return None
+            return numerator / denominator
+
+        current_ratio = safe_divide(current_assets, current_liabilities)
+        quick_ratio = safe_divide(
+            (current_assets - inventory) if inventory is not None else current_assets,
+            current_liabilities
+        )
+        cash_ratio = safe_divide(cash_and_equiv, current_liabilities)
+        op_cash_flow_ratio = safe_divide(op_cash_flow, current_liabilities)
+        working_cap = current_assets - current_liabilities if current_liabilities else None
+
+        debt_equity = safe_divide(total_debt, total_equity)
+        debt_ratio = safe_divide(total_debt, total_assets)
+        equity_ratio = safe_divide(total_equity, total_assets)
+        debt_capital = safe_divide(
+            total_debt,
+            (total_debt + total_equity) if total_debt is not None and total_equity is not None else None
+        )
+
+        interest_coverage = safe_divide(ebit, interest_expense)
+        fixed_charge_coverage = safe_divide(ebit, interest_expense)
+        cash_flow_debt = safe_divide(op_cash_flow, total_debt)
+
+        # Trend: 8-quarter current ratio
         trend_8q = []
         if "Current Assets" in balance_sheet.index and "Current Liabilities" in balance_sheet.index:
             ca_trend = balance_sheet.loc["Current Assets"].head(8)
             cl_trend = balance_sheet.loc["Current Liabilities"].head(8)
             for ca, cl in zip(ca_trend, cl_trend):
                 if pd.notna(ca) and pd.notna(cl) and cl != 0:
-                    trend_8q.append(float(ca / cl))
-                else:
-                    trend_8q.append(0.0)
-                    
+                    trend_8q.append(round(float(ca / cl), 4))
+
         return SolvencyMetrics(
-            current_ratio=float(current_ratio),
-            quick_ratio=float(quick_ratio),
-            cash_ratio=float(cash_ratio),
-            op_cash_flow_ratio=float(op_cash_flow_ratio),
-            working_cap=float(working_cap),
-            debt_equity=float(debt_equity),
-            debt_ratio=float(debt_ratio),
-            equity_ratio=float(equity_ratio),
-            debt_capital=float(debt_capital),
-            interest_coverage=float(interest_coverage),
-            fixed_charge_coverage=float(fixed_charge_coverage),
-            cash_flow_debt=float(cash_flow_debt),
+            current_ratio=current_ratio,
+            quick_ratio=quick_ratio,
+            cash_ratio=cash_ratio,
+            op_cash_flow_ratio=op_cash_flow_ratio,
+            working_cap=working_cap,
+            debt_equity=debt_equity,
+            debt_ratio=debt_ratio,
+            equity_ratio=equity_ratio,
+            debt_capital=debt_capital,
+            interest_coverage=interest_coverage,
+            fixed_charge_coverage=fixed_charge_coverage,
+            cash_flow_debt=cash_flow_debt,
             trend_8q=trend_8q[::-1]
         )
     except Exception as e:
-        print(f"Error computing solvency for {ticker_symbol}: {e}")
-        return empty_metrics()
+        logger.error(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=solvency | reason=computation_error | detail={e}")
+        return None

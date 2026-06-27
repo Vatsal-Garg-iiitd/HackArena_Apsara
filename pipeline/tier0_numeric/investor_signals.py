@@ -1,42 +1,43 @@
-import yfinance as yf
+import logging
+from typing import Optional
 from pipeline.schemas.tier0 import InvestorBehavior
+from pipeline.infra.data_vendor import vendor
 
-def get_investor_behavior(ticker_symbol: str) -> InvestorBehavior:
-    # In a fully integrated system with OpenBB, this would fetch real 13F and insider trades.
-    # We will use yfinance fallbacks where possible or mock values if data is missing.
-    ticker = yf.Ticker(ticker_symbol)
-    
+logger = logging.getLogger(__name__)
+
+
+def get_investor_behavior(ticker_symbol: str) -> Optional[InvestorBehavior]:
+    """
+    Computes investor behavior signals using the data vendor abstraction.
+    Returns None if critical data is unavailable.
+    """
     try:
-        # yfinance often returns short interest in the 'info' dict
-        info = ticker.info
-        short_interest = info.get('shortPercentOfFloat', 0.0) * 100
-        
-        # We don't easily get 90-day insider buys/sells from yfinance without parsing insider_transactions
-        # This is a stubbed implementation to be augmented with OpenBB/EDGAR later.
-        insider_transactions = ticker.insider_transactions
+        info = vendor.get_info(ticker_symbol)
+        insider_txns = vendor.get_insider_transactions(ticker_symbol)
+
+        short_interest = None
+        if info is not None:
+            raw_si = info.get('shortPercentOfFloat')
+            if raw_si is not None:
+                short_interest = float(raw_si) * 100
+
         buys = 0
         sells = 0
-        if insider_transactions is not None and not insider_transactions.empty:
-            # Simplistic parsing if data exists
-            for _, row in insider_transactions.iterrows():
-                # Not robust, but gives a proxy
+        if insider_txns is not None and not insider_txns.empty:
+            for _, row in insider_txns.iterrows():
                 shares = row.get('Shares', 0)
-                if shares > 0:
-                    buys += 1
-                elif shares < 0:
-                    sells += 1
-                    
+                if shares is not None:
+                    if shares > 0:
+                        buys += 1
+                    elif shares < 0:
+                        sells += 1
+
         return InvestorBehavior(
-            institutional_delta_pct=0.0, # Placeholder
+            institutional_delta_pct=None,  # Requires 13F data — filled by institutional_flow module
             insider_buys_90d=buys,
             insider_sells_90d=sells,
-            short_interest_delta_pct=short_interest
+            short_interest_delta_pct=short_interest,
         )
     except Exception as e:
-        print(f"Error computing investor behavior for {ticker_symbol}: {e}")
-        return InvestorBehavior(
-            institutional_delta_pct=0.0,
-            insider_buys_90d=0,
-            insider_sells_90d=0,
-            short_interest_delta_pct=0.0
-        )
+        logger.error(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=investor_behavior | reason=computation_error | detail={e}")
+        return None

@@ -20,16 +20,16 @@ class RateLimiter:
                         # but keeping it simple for the prototype
                         return func(*args, **kwargs)
                 except Exception as e:
-                    # Generic catch for HTTP 429 or quota errors
+                    # Generic catch for HTTP 429, 503, quota, or unavailable errors
                     error_msg = str(e).lower()
-                    if "429" in error_msg or "quota" in error_msg or "rate limit" in error_msg:
+                    if any(kw in error_msg for kw in ["429", "503", "quota", "rate limit", "unavailable"]):
                         retries += 1
                         if retries >= max_retries:
                             raise e
                         
                         # Exponential backoff with jitter
                         sleep_time = (2 ** retries) + random.uniform(0, 1)
-                        print(f"Rate limited. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{max_retries})")
+                        print(f"Transient error ({error_msg[:100]}). Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{max_retries})")
                         await asyncio.sleep(sleep_time)
                     else:
                         raise e
