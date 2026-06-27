@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #32394a;
+}
+
+::selection {
+  background: rgba(0, 170, 137, 0.18);
+}
+
+::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f7f8fa;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d9dde5;
+  border: 2px solid #f7f8fa;
+}
+
+.number {
+  font-variant-numeric: tabular-nums;
+}
