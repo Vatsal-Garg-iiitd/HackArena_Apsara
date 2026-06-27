@@ -155,12 +155,12 @@ class Edgar8KTranscriptSource(TranscriptSource):
         return None
 
 
-def get_transcript_source(source_pref: Optional[str] = None) -> TranscriptSource:
+def get_transcript_source() -> TranscriptSource:
     """
     Factory: selects the best available transcript source.
     Priority: Finnhub (if key available) > EDGAR 8-K > Mock.
     """
-    source_pref = (source_pref or os.getenv("TRANSCRIPT_SOURCE", "auto")).lower()
+    source_pref = os.getenv("TRANSCRIPT_SOURCE", "auto").lower()
 
     if source_pref == "mock":
         return MockTranscriptSource()

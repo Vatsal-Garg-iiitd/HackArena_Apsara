@@ -5,10 +5,9 @@ Logs data quality failures and skips tickers with missing critical data.
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Optional
 from pipeline.schemas.tier0 import Tier0Output, DataQualityReport
-from pipeline.infra.data_vendor import vendor
 from .ratios import get_solvency_metrics
 from .efficiency import get_efficiency_metrics
 from .profitability import get_profitability_metrics
@@ -24,46 +23,31 @@ from .institutional_flow import compute_institutional_flow
 logger = logging.getLogger(__name__)
 
 
-def generate_tier0_output(
-    ticker: str,
-    macro=None,
-    risk_free_rate: Optional[float] = None,
-    mode: str = "deep",
-) -> Optional[Tier0Output]:
+def generate_tier0_output(ticker: str) -> Optional[Tier0Output]:
     """
     Generate all Tier 0 numeric metrics for a ticker.
     Returns None if critical data is missing (never produces corrupted signals).
     """
     # Track data quality
-    mode = mode.lower()
-    include_peer_metrics = mode != "fast"
-    include_extended_metrics = mode == "deep"
-    fields_requested = 7 if include_peer_metrics else 5
+    fields_requested = 7  # solvency, efficiency, profitability, investor, technical, peer, normalized
     fields_received = 0
     fields_missing = []
     warnings = []
 
-    # Shared data fetches. These are the dominant latency source, so fetch once
-    # and pass the data into each metric calculator.
-    financials_data = vendor.get_financials(ticker, period="quarterly")
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=365 * 5)).strftime("%Y-%m-%d")
-    hist = vendor.get_ohlcv(ticker, start=start_date, end=end_date)
-
     # Core metrics
-    solvency = get_solvency_metrics(ticker, financials_data) if financials_data is not None else None
+    solvency = get_solvency_metrics(ticker)
     if solvency is not None:
         fields_received += 1
     else:
         fields_missing.append("solvency")
 
-    efficiency = get_efficiency_metrics(ticker, financials_data) if financials_data is not None else None
+    efficiency = get_efficiency_metrics(ticker)
     if efficiency is not None:
         fields_received += 1
     else:
         fields_missing.append("efficiency")
 
-    profitability = get_profitability_metrics(ticker, financials_data) if financials_data is not None else None
+    profitability = get_profitability_metrics(ticker)
     if profitability is not None:
         fields_received += 1
     else:
@@ -75,7 +59,7 @@ def generate_tier0_output(
     else:
         fields_missing.append("investor_behavior")
 
-    technical = get_technicals(ticker, hist=hist, risk_free_rate=risk_free_rate) if hist is not None else None
+    technical = get_technicals(ticker)
     if technical is not None:
         fields_received += 1
     else:
@@ -89,57 +73,50 @@ def generate_tier0_output(
         )
         return None
 
-    if macro is None:
-        # Backward-compatible fallback for callers outside the orchestrator.
-        try:
-            macro = classify_macro_regime()
-        except Exception as e:
-            logger.warning(f"Macro regime classification failed: {e}")
-            macro = None
+    # Macro regime (runs once per day, shared across tickers)
+    try:
+        macro = classify_macro_regime()
+        macro_context = macro.context_string
+    except Exception as e:
+        logger.warning(f"Macro regime classification failed: {e}")
+        macro = None
+        macro_context = None
 
-    macro_context = macro.context_string if macro else None
+    # Peer dynamics
+    peer_dynamics = get_peer_dynamics(ticker)
+    if peer_dynamics is not None:
+        fields_received += 1
+    else:
+        fields_missing.append("peer_dynamics")
 
-    peer_dynamics = None
-    normalized = None
-    if include_peer_metrics:
-        # Peer dynamics
-        peer_dynamics = get_peer_dynamics(ticker, base_tech=technical, risk_free_rate=risk_free_rate)
-        if peer_dynamics is not None:
-            fields_received += 1
-        else:
-            fields_missing.append("peer_dynamics")
-
-        # Normalized metrics
-        normalized = get_normalized_metrics(ticker, solvency, profitability, macro_context)
-        if normalized is not None:
-            fields_received += 1
-        else:
-            fields_missing.append("normalized_metrics")
+    # Normalized metrics
+    normalized = get_normalized_metrics(ticker, solvency, profitability, macro_context)
+    if normalized is not None:
+        fields_received += 1
+    else:
+        fields_missing.append("normalized_metrics")
 
     # Extended metrics (non-critical — failures don't abort the ticker)
     factor_exposure = None
-    if include_extended_metrics:
-        try:
-            factor_exposure = compute_factor_exposure(ticker, hist=hist)
-        except Exception as e:
-            logger.warning(f"Factor exposure computation failed for {ticker}: {e}")
-            warnings.append(f"factor_exposure: {e}")
+    try:
+        factor_exposure = compute_factor_exposure(ticker)
+    except Exception as e:
+        logger.warning(f"Factor exposure computation failed for {ticker}: {e}")
+        warnings.append(f"factor_exposure: {e}")
 
     options_signals = None
-    if include_extended_metrics:
-        try:
-            options_signals = compute_options_signals(ticker)
-        except Exception as e:
-            logger.warning(f"Options signals computation failed for {ticker}: {e}")
-            warnings.append(f"options_signals: {e}")
+    try:
+        options_signals = compute_options_signals(ticker)
+    except Exception as e:
+        logger.warning(f"Options signals computation failed for {ticker}: {e}")
+        warnings.append(f"options_signals: {e}")
 
     institutional_flow = None
-    if include_extended_metrics:
-        try:
-            institutional_flow = compute_institutional_flow(ticker)
-        except Exception as e:
-            logger.warning(f"Institutional flow computation failed for {ticker}: {e}")
-            warnings.append(f"institutional_flow: {e}")
+    try:
+        institutional_flow = compute_institutional_flow(ticker)
+    except Exception as e:
+        logger.warning(f"Institutional flow computation failed for {ticker}: {e}")
+        warnings.append(f"institutional_flow: {e}")
 
     # Data quality report
     quality_score = fields_received / fields_requested if fields_requested > 0 else 0.0

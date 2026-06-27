@@ -8,7 +8,6 @@ All methods return None on failure instead of 0.0 to prevent silent data corrupt
 
 import os
 import logging
-import threading
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict, Any, List
@@ -414,64 +413,18 @@ class CachedDataVendor(DataVendorClient):
 
     def __init__(self, inner_vendor: DataVendorClient):
         self.inner = inner_vendor
-        self._memory_cache: Dict[str, Any] = {}
-        self._memory_lock = threading.Lock()
 
     def get_financials(self, ticker: str, period: str = "quarterly") -> Optional[Dict[str, pd.DataFrame]]:
-        key = f"financials:{ticker.upper()}:{period}"
-        cached = self._get_memory(key)
-        if cached is not None:
-            logger.info(f"FINANCIALS_MEMORY_CACHE_HIT | ticker={ticker} | period={period}")
-            return cached
-
-        data = self.inner.get_financials(ticker, period)
-        if data is not None:
-            self._set_memory(key, data)
-        return data
+        return self.inner.get_financials(ticker, period)
 
     def get_info(self, ticker: str) -> Optional[Dict[str, Any]]:
-        key = f"info:{ticker.upper()}"
-        cached = self._get_memory(key)
-        if cached is not None:
-            logger.info(f"INFO_MEMORY_CACHE_HIT | ticker={ticker}")
-            return cached
-
-        data = self.inner.get_info(ticker)
-        if data is not None:
-            self._set_memory(key, data)
-        return data
+        return self.inner.get_info(ticker)
 
     def get_insider_transactions(self, ticker: str) -> Optional[pd.DataFrame]:
-        key = f"insider_transactions:{ticker.upper()}"
-        cached = self._get_memory(key)
-        if cached is not None:
-            logger.info(f"INSIDER_MEMORY_CACHE_HIT | ticker={ticker}")
-            return cached
-
-        data = self.inner.get_insider_transactions(ticker)
-        if data is not None:
-            self._set_memory(key, data)
-        return data
+        return self.inner.get_insider_transactions(ticker)
 
     def get_options_chain(self, ticker: str) -> Optional[Dict[str, Any]]:
-        key = f"options:{ticker.upper()}"
-        cached = self._get_memory(key)
-        if cached is not None:
-            logger.info(f"OPTIONS_MEMORY_CACHE_HIT | ticker={ticker}")
-            return cached
-
-        data = self.inner.get_options_chain(ticker)
-        if data is not None:
-            self._set_memory(key, data)
-        return data
-
-    def _get_memory(self, key: str) -> Optional[Any]:
-        with self._memory_lock:
-            return self._memory_cache.get(key)
-
-    def _set_memory(self, key: str, value: Any):
-        with self._memory_lock:
-            self._memory_cache[key] = value
+        return self.inner.get_options_chain(ticker)
 
     def get_ohlcv(self, ticker: str, start: str, end: str) -> Optional[pd.DataFrame]:
         from pipeline.infra.cache import cache
@@ -483,23 +436,10 @@ class CachedDataVendor(DataVendorClient):
         except Exception:
             return self.inner.get_ohlcv(ticker, start, end)
 
-        today = datetime.date.today()
-        if end_date >= today:
-            last_completed = today - datetime.timedelta(days=1)
-            while last_completed.weekday() >= 5:
-                last_completed -= datetime.timedelta(days=1)
-            end_date = min(end_date, last_completed)
-            end = end_date.strftime("%Y-%m-%d")
-
-        key = f"ohlcv:{ticker.upper()}:{start}:{end}"
-        cached = self._get_memory(key)
-        if cached is not None:
-            logger.info(f"OHLCV_MEMORY_CACHE_HIT | ticker={ticker} | range={start}_to={end}")
-            return cached
-
         # 1. Fetch whatever we have in cache
         cached_df = cache.get_cached_ohlcv(ticker, start, end)
         latest_cached = cache.get_latest_ohlcv_date(ticker)
+        today = datetime.date.today()
 
         needs_delta = False
         delta_start = start
@@ -524,8 +464,6 @@ class CachedDataVendor(DataVendorClient):
         else:
             logger.info(f"OHLCV_CACHE_HIT | ticker={ticker} | range={start}_to={end}")
 
-        if cached_df is not None:
-            self._set_memory(key, cached_df)
         return cached_df
 
 

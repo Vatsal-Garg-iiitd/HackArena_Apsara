@@ -1,22 +1,18 @@
 import pandas as pd
 import logging
-from typing import Optional, Dict
+from typing import Optional
 from pipeline.schemas.tier0 import EfficiencyMetrics
 from pipeline.infra.data_vendor import vendor
 
 logger = logging.getLogger(__name__)
 
 
-def get_efficiency_metrics(
-    ticker_symbol: str,
-    financials_data: Optional[Dict[str, pd.DataFrame]] = None,
-) -> Optional[EfficiencyMetrics]:
+def get_efficiency_metrics(ticker_symbol: str) -> Optional[EfficiencyMetrics]:
     """
     Computes efficiency & turnover metrics using the data vendor abstraction.
     Returns None if critical data is unavailable.
     """
-    if financials_data is None:
-        financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
+    financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
 
     if financials_data is None:
         logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=efficiency | reason=no_financial_data")
