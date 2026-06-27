@@ -1,9 +1,11 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, LogOut } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { MouseEvent, useEffect, useMemo, useState } from "react";
 import type { Candle, Company, MarketIndex, MarketPayload } from "@/lib/types";
 import { formatCompact, formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
+import { supabase } from "@/lib/supabase";
 
 type RangeKey = "1D" | "1W" | "1M" | "3M" | "6M" | "1Y" | "All";
 
@@ -239,6 +241,7 @@ function SupportPanel({ index }: { index: MarketIndex }) {
 }
 
 export function DashboardClient() {
+  const router = useRouter();
   const [payload, setPayload] = useState<MarketPayload | null>(null);
   const [activeKey, setActiveKey] = useState<"nifty50" | "sensex">("nifty50");
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
@@ -275,6 +278,11 @@ export function DashboardClient() {
   const pageCount = Math.max(1, Math.ceil(activeIndex.companies.length / pageSize));
   const visibleCompanies = activeIndex.companies.slice(page * pageSize, page * pageSize + pageSize);
 
+  async function handleLogout() {
+    await supabase?.auth.signOut();
+    router.push("/");
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-700 md:px-8">
       <div className="mx-auto max-w-7xl">
@@ -283,18 +291,29 @@ export function DashboardClient() {
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Market Dashboard</div>
             <h1 className="mt-1 text-2xl font-semibold text-slate-800">Indian Equity Indices</h1>
           </div>
-          <div className="flex rounded-md border border-slate-200 bg-white p-1">
-            {payload?.indices.map((index) => (
-              <button
-                key={index.key}
-                onClick={() => setActiveKey(index.key)}
-                className={`h-9 rounded px-4 text-sm font-semibold ${
-                  activeKey === index.key ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"
-                }`}
-              >
-                {index.name}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-md border border-slate-200 bg-white p-1">
+              {payload?.indices.map((index) => (
+                <button
+                  key={index.key}
+                  onClick={() => setActiveKey(index.key)}
+                  className={`h-9 rounded px-4 text-sm font-semibold ${
+                    activeKey === index.key ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  {index.name}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              aria-label="Logout"
+              title="Logout"
+              className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </header>
 
