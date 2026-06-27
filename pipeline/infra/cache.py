@@ -9,6 +9,8 @@ import json
 import logging
 import time
 from typing import Any, Optional
+from datetime import date
+import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -167,6 +169,52 @@ class PostgresCache:
         except Exception as e:
             logger.error(f"Error saving run history: {e}")
 
+    def get_cached_ohlcv(self, ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """SELECT trade_date, open, high, low, close, volume FROM ohlcv_cache 
+                       WHERE ticker = %s AND trade_date >= %s AND trade_date <= %s 
+                       ORDER BY trade_date ASC""",
+                    (ticker, start_date, end_date)
+                )
+                rows = cur.fetchall()
+                if rows:
+                    df = pd.DataFrame(rows, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+                    df["Date"] = pd.to_datetime(df["Date"])
+                    df.set_index("Date", inplace=True)
+                    return df
+        except Exception as e:
+            logger.error(f"Error reading OHLCV cache for {ticker}: {e}")
+        return None
+
+    def get_latest_ohlcv_date(self, ticker: str) -> Optional[date]:
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT MAX(trade_date) FROM ohlcv_cache WHERE ticker = %s", (ticker,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return row[0]
+        except Exception as e:
+            logger.error(f"Error fetching max trade date for {ticker}: {e}")
+        return None
+
+    def save_ohlcv(self, ticker: str, df: pd.DataFrame):
+        try:
+            with self.conn.cursor() as cur:
+                for idx, row in df.iterrows():
+                    trade_date = idx.date() if hasattr(idx, 'date') else idx
+                    cur.execute(
+                        """INSERT INTO ohlcv_cache (ticker, trade_date, open, high, low, close, volume) 
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)
+                           ON CONFLICT (ticker, trade_date) DO UPDATE SET 
+                           open = EXCLUDED.open, high = EXCLUDED.high, 
+                           low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume""",
+                        (ticker, trade_date, row["Open"], row["High"], row["Low"], row["Close"], int(row["Volume"]))
+                    )
+        except Exception as e:
+            logger.error(f"Error saving OHLCV to cache for {ticker}: {e}")
+
 
 class SQLiteFallbackCache:
     """SQLite fallback when PostgreSQL is unavailable."""
@@ -181,6 +229,18 @@ class SQLiteFallbackCache:
                 key TEXT PRIMARY KEY,
                 value TEXT,
                 created_at REAL DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS ohlcv_cache (
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume INTEGER,
+                PRIMARY KEY (ticker, trade_date)
             )
         """)
         self.conn.commit()
@@ -211,6 +271,53 @@ class SQLiteFallbackCache:
     def save_run_history(self, run_id: str, summary: dict):
         """No-op for SQLite fallback."""
         pass
+
+    def get_cached_ohlcv(self, ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        try:
+            import pandas as pd
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """SELECT trade_date, open, high, low, close, volume FROM ohlcv_cache 
+                   WHERE ticker = ? AND trade_date >= ? AND trade_date <= ? 
+                   ORDER BY trade_date ASC""",
+                (ticker, start_date, end_date)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                df = pd.DataFrame(rows, columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+                df["Date"] = pd.to_datetime(df["Date"])
+                df.set_index("Date", inplace=True)
+                return df
+        except Exception as e:
+            logger.error(f"Error reading SQLite OHLCV cache for {ticker}: {e}")
+        return None
+
+    def get_latest_ohlcv_date(self, ticker: str):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT MAX(trade_date) FROM ohlcv_cache WHERE ticker = ?", (ticker,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                import datetime
+                # SQLite stores dates as strings, convert to date object
+                return datetime.datetime.strptime(row[0], "%Y-%m-%d").date()
+        except Exception as e:
+            logger.error(f"Error fetching max trade date from SQLite for {ticker}: {e}")
+        return None
+
+    def save_ohlcv(self, ticker: str, df: pd.DataFrame):
+        try:
+            cursor = self.conn.cursor()
+            for idx, row in df.iterrows():
+                trade_date = idx.strftime("%Y-%m-%d") if hasattr(idx, 'strftime') else str(idx)
+                cursor.execute(
+                    """INSERT OR REPLACE INTO ohlcv_cache (ticker, trade_date, open, high, low, close, volume) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ticker, trade_date, row["Open"], row["High"], row["Low"], row["Close"], int(row["Volume"]))
+                )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error saving OHLCV to SQLite cache for {ticker}: {e}")
 
 
 def create_cache():

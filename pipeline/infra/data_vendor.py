@@ -405,29 +405,92 @@ class PolygonVendor(DataVendorClient):
                 return None
 
 
+class CachedDataVendor(DataVendorClient):
+    """
+    Data Vendor wrapper that intercepts get_ohlcv requests, checks cache,
+    and only fetches the delta from the last cached date forward.
+    """
+
+    def __init__(self, inner_vendor: DataVendorClient):
+        self.inner = inner_vendor
+
+    def get_financials(self, ticker: str, period: str = "quarterly") -> Optional[Dict[str, pd.DataFrame]]:
+        return self.inner.get_financials(ticker, period)
+
+    def get_info(self, ticker: str) -> Optional[Dict[str, Any]]:
+        return self.inner.get_info(ticker)
+
+    def get_insider_transactions(self, ticker: str) -> Optional[pd.DataFrame]:
+        return self.inner.get_insider_transactions(ticker)
+
+    def get_options_chain(self, ticker: str) -> Optional[Dict[str, Any]]:
+        return self.inner.get_options_chain(ticker)
+
+    def get_ohlcv(self, ticker: str, start: str, end: str) -> Optional[pd.DataFrame]:
+        from pipeline.infra.cache import cache
+        import datetime
+
+        try:
+            start_date = datetime.datetime.strptime(start, "%Y-%m-%d").date()
+            end_date = datetime.datetime.strptime(end, "%Y-%m-%d").date()
+        except Exception:
+            return self.inner.get_ohlcv(ticker, start, end)
+
+        # 1. Fetch whatever we have in cache
+        cached_df = cache.get_cached_ohlcv(ticker, start, end)
+        latest_cached = cache.get_latest_ohlcv_date(ticker)
+        today = datetime.date.today()
+
+        needs_delta = False
+        delta_start = start
+
+        if latest_cached is None:
+            needs_delta = True
+            delta_start = start
+        elif latest_cached < end_date and latest_cached < today:
+            needs_delta = True
+            delta_start_date = latest_cached + datetime.timedelta(days=1)
+            delta_start = delta_start_date.strftime("%Y-%m-%d")
+
+        if needs_delta:
+            logger.info(f"OHLCV_CACHE_MISS | ticker={ticker} | fetching_delta_from={delta_start}_to={end}")
+            delta_df = self.inner.get_ohlcv(ticker, delta_start, end)
+            
+            if delta_df is not None and not delta_df.empty:
+                # Save newly retrieved delta data to database
+                cache.save_ohlcv(ticker, delta_df)
+                # Fetch unified sorted dataset
+                cached_df = cache.get_cached_ohlcv(ticker, start, end)
+        else:
+            logger.info(f"OHLCV_CACHE_HIT | ticker={ticker} | range={start}_to={end}")
+
+        return cached_df
+
+
 def get_data_vendor() -> DataVendorClient:
     """
-    Factory function. Returns the configured data vendor.
-    Defaults to Polygon if POLYGON_API_KEY is available, otherwise falls back to YFinance.
-    Can be overridden with DATA_VENDOR env var.
+    Factory function. Returns the configured data vendor wrapped in CachedDataVendor.
     """
     vendor_choice = os.getenv("DATA_VENDOR", "auto").lower()
 
     if vendor_choice == "polygon":
         try:
-            return PolygonVendor()
+            inner = PolygonVendor()
         except DataRetrievalError:
             logger.warning("Polygon API key not found. Falling back to YFinance.")
-            return YFinanceVendor()
+            inner = YFinanceVendor()
     elif vendor_choice == "yfinance":
-        return YFinanceVendor()
+        inner = YFinanceVendor()
     else:  # auto
         if os.getenv("POLYGON_API_KEY"):
             try:
-                return PolygonVendor()
+                inner = PolygonVendor()
             except DataRetrievalError:
-                return YFinanceVendor()
-        return YFinanceVendor()
+                inner = YFinanceVendor()
+        else:
+            inner = YFinanceVendor()
+            
+    return CachedDataVendor(inner)
 
 
 # Global vendor instance
