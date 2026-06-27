@@ -153,7 +153,11 @@ def compute_max_drawdown(returns: pd.Series) -> Optional[MaxDrawdownDetail]:
     )
 
 
-def get_technicals(ticker_symbol: str) -> Optional[Technicals]:
+def get_technicals(
+    ticker_symbol: str,
+    hist: Optional[pd.DataFrame] = None,
+    risk_free_rate: Optional[float] = None,
+) -> Optional[Technicals]:
     """
     Computes technical indicators using 5 years of OHLCV data.
     Uses FRED risk-free rate instead of hardcoded value.
@@ -163,7 +167,8 @@ def get_technicals(ticker_symbol: str) -> Optional[Technicals]:
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=365 * 5)).strftime("%Y-%m-%d")
 
-    hist = vendor.get_ohlcv(ticker_symbol, start=start_date, end=end_date)
+    if hist is None:
+        hist = vendor.get_ohlcv(ticker_symbol, start=start_date, end=end_date)
 
     if hist is None or hist.empty:
         logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=technicals | reason=no_ohlcv_data")
@@ -184,7 +189,7 @@ def get_technicals(ticker_symbol: str) -> Optional[Technicals]:
         volatility = float(returns.std() * np.sqrt(252))
 
         # Fetch real risk-free rate from FRED
-        rf_annual = _fetch_risk_free_rate()
+        rf_annual = risk_free_rate if risk_free_rate is not None else _fetch_risk_free_rate()
         rf_daily = rf_annual / 252
 
         # Rolling Sharpe (252-day windows over the full history)

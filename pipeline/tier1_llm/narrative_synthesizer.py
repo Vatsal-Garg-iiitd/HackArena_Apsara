@@ -2,25 +2,11 @@ import json
 import logging
 from typing import Dict, Any
 from pipeline.infra.gemini_client import gemini_client
+from pipeline.infra.tavily_client import get_recent_news
 from pipeline.preprocessing.earnings_call import process_latest_earnings_call
 from pipeline.preprocessing.filings.sec_section_extract import extract_10k_sections
 
 logger = logging.getLogger(__name__)
-
-
-def get_recent_news(ticker: str) -> str:
-    """Mock fetching recent news titles/snippets."""
-    mock_news = [
-        {"publisher": "Bloomberg", "title": f"{ticker} announces new product line, defying sector slump."},
-        {"publisher": "Reuters", "title": f"Analysts wary of {ticker}'s international exposure amid tariffs."},
-        {"publisher": "WSJ", "title": f"Inside {ticker}'s aggressive cost-cutting measures."}
-    ]
-    snippets = []
-    for item in mock_news:
-        publisher = item.get("publisher", "Unknown")
-        title = item.get("title", "")
-        snippets.append(f"- [{publisher}] {title}")
-    return "\n".join(snippets)
 
 
 async def run_narrative_synthesizer(ticker: str) -> Dict[str, Any]:

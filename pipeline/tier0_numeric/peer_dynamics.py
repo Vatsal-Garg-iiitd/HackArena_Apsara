@@ -88,7 +88,11 @@ def _compute_peer_confidence(peer_count: int, peer_values: List[float]) -> Optio
     return round(count_score + tightness_score, 3)
 
 
-def get_peer_dynamics(ticker_symbol: str) -> Optional[PeerDynamics]:
+def get_peer_dynamics(
+    ticker_symbol: str,
+    base_tech=None,
+    risk_free_rate: Optional[float] = None,
+) -> Optional[PeerDynamics]:
     """
     Computes peer-relative metrics with dynamic peer discovery,
     percentile ranks, and confidence indicators.
@@ -105,7 +109,8 @@ def get_peer_dynamics(ticker_symbol: str) -> Optional[PeerDynamics]:
         )
 
     try:
-        base_tech = get_technicals(ticker_symbol)
+        if base_tech is None:
+            base_tech = get_technicals(ticker_symbol, risk_free_rate=risk_free_rate)
         if base_tech is None:
             return None
 
@@ -115,7 +120,7 @@ def get_peer_dynamics(ticker_symbol: str) -> Optional[PeerDynamics]:
         valid_peers = []
 
         for peer in peers:
-            peer_tech = get_technicals(peer)
+            peer_tech = get_technicals(peer, risk_free_rate=risk_free_rate)
             if peer_tech is None:
                 continue
 

@@ -1,18 +1,22 @@
 import pandas as pd
 import logging
-from typing import Optional
+from typing import Optional, Dict
 from pipeline.schemas.tier0 import ProfitabilityMetrics
 from pipeline.infra.data_vendor import vendor
 
 logger = logging.getLogger(__name__)
 
 
-def get_profitability_metrics(ticker_symbol: str) -> Optional[ProfitabilityMetrics]:
+def get_profitability_metrics(
+    ticker_symbol: str,
+    financials_data: Optional[Dict[str, pd.DataFrame]] = None,
+) -> Optional[ProfitabilityMetrics]:
     """
     Computes profitability metrics using the data vendor abstraction.
     Returns None if critical data is unavailable.
     """
-    financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
+    if financials_data is None:
+        financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
 
     if financials_data is None:
         logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=profitability | reason=no_financial_data")

@@ -17,3 +17,6 @@ psycopg2-binary
 asyncpg
 vectorbt
 scikit-learn
+tavily-python
+fastapi
+uvicorn

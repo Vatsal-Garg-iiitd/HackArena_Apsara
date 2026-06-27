@@ -1,18 +1,22 @@
 import pandas as pd
 import logging
-from typing import Optional
+from typing import Optional, Dict
 from pipeline.schemas.tier0 import SolvencyMetrics
 from pipeline.infra.data_vendor import vendor
 
 logger = logging.getLogger(__name__)
 
 
-def get_solvency_metrics(ticker_symbol: str) -> Optional[SolvencyMetrics]:
+def get_solvency_metrics(
+    ticker_symbol: str,
+    financials_data: Optional[Dict[str, pd.DataFrame]] = None,
+) -> Optional[SolvencyMetrics]:
     """
     Computes solvency & liquidity metrics using the data vendor abstraction.
     Returns None if critical data is unavailable — never returns 0.0 fallbacks.
     """
-    financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
+    if financials_data is None:
+        financials_data = vendor.get_financials(ticker_symbol, period="quarterly")
 
     if financials_data is None:
         logger.warning(f"DATA_QUALITY_FAILURE | ticker={ticker_symbol} | field=solvency | reason=no_financial_data")

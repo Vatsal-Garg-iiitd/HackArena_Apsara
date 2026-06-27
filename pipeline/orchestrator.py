@@ -10,6 +10,7 @@ Wires all tiers together with:
 import asyncio
 import json
 import logging
+import os
 from datetime import date
 from typing import List, Dict, Any
 
@@ -17,6 +18,8 @@ from pipeline.infra.cache import cache
 from pipeline.infra.consistency_checker import consistency_checker
 from pipeline.infra.logging_config import PipelineRunTracker
 from pipeline.tier0_numeric import generate_tier0_output
+from pipeline.tier0_numeric.macro_regime import classify_macro_regime
+from pipeline.tier0_numeric.technicals import _fetch_risk_free_rate
 from pipeline.tier1_llm.quant_synthesizer import run_quant_synthesizer
 from pipeline.tier1_llm.narrative_synthesizer import run_narrative_synthesizer
 from pipeline.tier2_llm.general_expert import run_general_expert
@@ -32,28 +35,49 @@ def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:
     return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
 
-async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[str, Any]:
+async def run_pipeline(
+    tickers: List[str],
+    force_refresh: bool = False,
+    mode: str = "deep",
+) -> Dict[str, Any]:
     results = {}
     today_str = str(date.today())
     quarter_str = current_quarter()
+    mode = mode.lower()
 
     # Initialize run tracker
     tracker = PipelineRunTracker()
     tracker.summary.tickers_requested = len(tickers)
 
     print(f"\n{'='*60}")
-    print(f"  Pipeline Run {tracker.run_id} — {len(tickers)} tickers")
+    print(f"  Pipeline Run {tracker.run_id} — {len(tickers)} tickers — mode={mode}")
     print(f"{'='*60}\n")
 
     # =====================================================================
     # TIER 0: Numeric Engine (pure code, no LLM)
     # =====================================================================
     tier0_outputs = {}
+    macro_regime = None
+    risk_free_rate = None
+
+    with tracker.track_stage("macro_context", "shared"):
+        try:
+            macro_regime = await asyncio.to_thread(classify_macro_regime)
+            risk_free_rate = await asyncio.to_thread(_fetch_risk_free_rate)
+            print("  ✓ Shared macro context loaded")
+        except Exception as e:
+            logger.warning(f"Shared macro context failed: {e}")
 
     async def fetch_tier0(ticker: str):
         with tracker.track_stage("tier0", ticker) as metrics:
             try:
-                out = await asyncio.to_thread(generate_tier0_output, ticker)
+                out = await asyncio.to_thread(
+                    generate_tier0_output,
+                    ticker,
+                    macro_regime,
+                    risk_free_rate,
+                    mode,
+                )
                 if out is None:
                     tracker.record_data_quality_failure(ticker, "tier0", "critical_data_missing")
                     tracker.summary.tickers_skipped += 1
@@ -82,7 +106,7 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
     tickers_to_run_1a = []
 
     for ticker in valid_tickers:
-        t1a_cache_key = f"{ticker}:{today_str}:quant_v2"
+        t1a_cache_key = f"{ticker}:{today_str}:quant_v2:{mode}"
         tier1a_out = cache.get(t1a_cache_key) if not force_refresh else None
 
         if tier1a_out:
@@ -92,11 +116,19 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
         else:
             tickers_to_run_1a.append(ticker)
 
-    for chunk in chunk_list(tickers_to_run_1a, 3):
+    async def run_1a_chunk(chunk: List[str]):
         with tracker.track_stage("tier1a", ",".join(chunk)):
             print(f"  → Running Tier 1A for: {chunk}")
             tier0_chunk = [tier0_outputs[t] for t in chunk]
-            t1a_res_list = await run_quant_synthesizer(tier0_chunk)
+            try:
+                t1a_res_list = await run_quant_synthesizer(tier0_chunk)
+            except Exception as e:
+                tracker.summary.api_error_count += 1
+                for t in chunk:
+                    tracker.record_data_quality_failure(t, "tier1a", f"llm_error:{e}")
+                    tier1a_outputs[t] = {}
+                logger.error(f"Tier 1A failed for {chunk}: {e}")
+                return
 
             for res in t1a_res_list:
                 t = res.get("ticker")
@@ -112,7 +144,16 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
                             logger.warning(f"INCONSISTENCY | {t} | {inc['rule']}: {inc['message']}")
 
                     tier1a_outputs[t] = res
-                    cache.set(f"{t}:{today_str}:quant_v2", res)
+                    cache.set(f"{t}:{today_str}:quant_v2:{mode}", res)
+
+    tier1a_concurrency = int(os.getenv("TIER1A_BATCH_CONCURRENCY", "2"))
+    tier1a_sem = asyncio.Semaphore(max(1, tier1a_concurrency))
+
+    async def bounded_1a_chunk(chunk: List[str]):
+        async with tier1a_sem:
+            await run_1a_chunk(chunk)
+
+    await asyncio.gather(*(bounded_1a_chunk(chunk) for chunk in chunk_list(tickers_to_run_1a, 3)))
 
     # =====================================================================
     # TIER 1B: Narrative Synthesizer (one ticker at a time, cached per quarter)
@@ -130,7 +171,13 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
         else:
             with tracker.track_stage("tier1b", ticker):
                 print(f"  → Running Tier 1B for: {ticker}")
-                out = await run_narrative_synthesizer(ticker)
+                try:
+                    out = await run_narrative_synthesizer(ticker)
+                except Exception as e:
+                    tracker.summary.api_error_count += 1
+                    tracker.record_data_quality_failure(ticker, "tier1b", f"llm_error:{e}")
+                    logger.error(f"Tier 1B failed for {ticker}: {e}")
+                    out = {}
                 if out:
                     cache.set(t1b_cache_key, out)
                 tier1b_outputs[ticker] = out
@@ -141,7 +188,7 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
     # TIER 2: General Expert (synthesis + final signal)
     # =====================================================================
     async def run_2_for_ticker(ticker: str):
-        t2_cache_key = f"{ticker}:{today_str}:general_v2"
+        t2_cache_key = f"{ticker}:{today_str}:general_v2:{mode}"
         tier2_out = cache.get(t2_cache_key) if not force_refresh else None
 
         if tier2_out:
@@ -163,11 +210,17 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
                 macro = tier0_outputs[ticker].macro_regime
                 macro_context = macro.context_string if macro else None
 
-                out = await run_general_expert(
-                    ticker, t1a, t1b,
-                    macro_regime=macro_context,
-                    consistency_flags=consistency_flags if consistency_flags else None,
-                )
+                try:
+                    out = await run_general_expert(
+                        ticker, t1a, t1b,
+                        macro_regime=macro_context,
+                        consistency_flags=consistency_flags if consistency_flags else None,
+                    )
+                except Exception as e:
+                    tracker.summary.api_error_count += 1
+                    tracker.record_data_quality_failure(ticker, "tier2", f"llm_error:{e}")
+                    logger.error(f"Tier 2 failed for {ticker}: {e}")
+                    out = {}
 
                 if out:
                     # Consistency check Tier 2

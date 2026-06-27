@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import random
 from typing import Callable, Any
@@ -35,5 +36,6 @@ class RateLimiter:
                         raise e
         return None
 
-# Global limiter instance
-limiter = RateLimiter(max_concurrent=2)
+# Global limiter instance. Keep the old default, but allow production runs to tune
+# this without changing code.
+limiter = RateLimiter(max_concurrent=int(os.getenv("GEMINI_MAX_CONCURRENT", "2")))
