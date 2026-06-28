@@ -14,6 +14,10 @@ type ChatRequest = {
 const llmUrl = process.env.QUANTY_LLM_API_URL || "https://api.openai.com/v1/chat/completions";
 const llmModel = process.env.QUANTY_LLM_MODEL || "gpt-4o-mini";
 
+function toGeminiText(messages: ChatMessage[]) {
+  return messages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n\n");
+}
+
 function latestMarketSummary() {
   const indices = marketData.indices
     .map((index) => {
@@ -63,6 +67,38 @@ async function askLlm(messages: ChatMessage[], page?: string) {
       latestMarketSummary()
     ].join("\n\n")
   };
+
+  if (llmUrl.includes("generativelanguage.googleapis.com")) {
+    const response = await fetch(llmUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": key
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: toGeminiText([system, ...messages.slice(-10)]) }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.35,
+          maxOutputTokens: 420
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Quanty AI provider request failed.");
+    }
+
+    const payload = await response.json();
+    return payload?.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text)
+      .filter(Boolean)
+      .join("\n") as string | undefined;
+  }
 
   const response = await fetch(llmUrl, {
     method: "POST",
