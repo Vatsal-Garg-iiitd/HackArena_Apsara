@@ -57,7 +57,7 @@ create table if not exists public.portfolio_items (
   revenue numeric,
   health_status text,
   health_reason text,
-  source_reference text default 'yahoo_fin.stock_info',
+  source_reference text default 'nsetools.Nse with yahoo_fin.stock_info fallback',
   stock_snapshot jsonb not null default '{}'::jsonb,
   config jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -72,7 +72,7 @@ alter table public.portfolio_items add column if not exists expiry_date date;
 alter table public.portfolio_items add column if not exists revenue numeric;
 alter table public.portfolio_items add column if not exists health_status text;
 alter table public.portfolio_items add column if not exists health_reason text;
-alter table public.portfolio_items add column if not exists source_reference text default 'yahoo_fin.stock_info';
+alter table public.portfolio_items add column if not exists source_reference text default 'nsetools.Nse with yahoo_fin.stock_info fallback';
 
 alter table public.portfolio_items enable row level security;
 

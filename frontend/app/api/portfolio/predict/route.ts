@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     const sigma = deriveAnnualVolatility(snapshot.candles ?? []);
     if (!sigma) {
-      return NextResponse.json({ error: "Not enough historical Yahoo data to derive volatility." }, { status: 400 });
+      return NextResponse.json({ error: "Not enough historical market data to derive volatility." }, { status: 400 });
     }
 
     const K = body.strike_price && body.strike_price > 0 ? body.strike_price : S;
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ticker: body.symbol,
       company_name: body.name,
-      data_source: "yahoo_fin.stock_info snapshot",
+      data_source: "nsetools.Nse with yahoo_fin.stock_info fallback snapshot",
       derived_parameters: {
         S,
         K,

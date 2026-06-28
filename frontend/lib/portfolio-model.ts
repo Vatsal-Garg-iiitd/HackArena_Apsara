@@ -2,7 +2,7 @@ import type { Candle, Company, MarketIndex } from "@/lib/types";
 
 export type PortfolioConfig = {
   source: "dashboard";
-  sourceReference: "yahoo_fin.stock_info";
+  sourceReference: "nsetools.Nse with yahoo_fin.stock_info fallback";
   addedFrom: MarketIndex["key"];
   watchMode: "manual";
   spotPrice: number | null;
@@ -80,7 +80,7 @@ export function buildPortfolioConfig(company: Company, index: MarketIndex): Port
 
   return {
     source: "dashboard",
-    sourceReference: "yahoo_fin.stock_info",
+    sourceReference: "nsetools.Nse with yahoo_fin.stock_info fallback",
     addedFrom: index.key,
     watchMode: "manual",
     spotPrice: company.price,

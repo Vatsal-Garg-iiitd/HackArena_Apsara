@@ -1,0 +1,3 @@
+yahoo_fin
+requests
+git+https://github.com/vsjha18/nsetools.git
