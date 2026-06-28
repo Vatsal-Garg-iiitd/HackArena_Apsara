@@ -5,9 +5,9 @@ from .segment import segment_transcript, filter_qa_relevance
 from .sentiment_lexicon import analyze_sentiment
 from .extractive import summarize_prepared_remarks
 
-def process_latest_earnings_call(ticker: str) -> Dict[str, Any]:
-    source = get_transcript_source()
-    raw_transcript = source.fetch_latest_transcript(ticker)
+def process_latest_earnings_call(ticker: str, source: str = "auto") -> Dict[str, Any]:
+    transcript_source = get_transcript_source(source)
+    raw_transcript = transcript_source.fetch_latest_transcript(ticker)
     
     if not raw_transcript:
         return {}

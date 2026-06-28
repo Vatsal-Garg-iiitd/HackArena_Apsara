@@ -18,8 +18,6 @@ from .normalization import get_normalized_metrics
 from .factor_model import compute_factor_exposure
 from .options_signals import compute_options_signals
 from .macro_regime import classify_macro_regime
-from .institutional_flow import compute_institutional_flow
-
 logger = logging.getLogger(__name__)
 
 
@@ -111,13 +109,6 @@ def generate_tier0_output(ticker: str) -> Optional[Tier0Output]:
         logger.warning(f"Options signals computation failed for {ticker}: {e}")
         warnings.append(f"options_signals: {e}")
 
-    institutional_flow = None
-    try:
-        institutional_flow = compute_institutional_flow(ticker)
-    except Exception as e:
-        logger.warning(f"Institutional flow computation failed for {ticker}: {e}")
-        warnings.append(f"institutional_flow: {e}")
-
     # Data quality report
     quality_score = fields_received / fields_requested if fields_requested > 0 else 0.0
     data_quality = DataQualityReport(
@@ -148,6 +139,5 @@ def generate_tier0_output(ticker: str) -> Optional[Tier0Output]:
         factor_exposure=factor_exposure,
         options_signals=options_signals,
         macro_regime=macro,
-        institutional_flow=institutional_flow,
         data_quality=data_quality,
     )

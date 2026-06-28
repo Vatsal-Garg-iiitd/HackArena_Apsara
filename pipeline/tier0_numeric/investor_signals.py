@@ -33,7 +33,7 @@ def get_investor_behavior(ticker_symbol: str) -> Optional[InvestorBehavior]:
                         sells += 1
 
         return InvestorBehavior(
-            institutional_delta_pct=None,  # Requires 13F data — filled by institutional_flow module
+            institutional_delta_pct=None,
             insider_buys_90d=buys,
             insider_sells_90d=sells,
             short_interest_delta_pct=short_interest,

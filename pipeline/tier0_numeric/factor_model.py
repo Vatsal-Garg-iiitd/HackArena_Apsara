@@ -179,8 +179,6 @@ def compute_factor_exposure(ticker_symbol: str) -> Optional[FactorExposureReport
             return None
 
         # OLS regression
-        from scipy import stats as scipy_stats
-
         Y = combined["excess_ret"].values
         X = combined[factor_cols].values
         # Add constant for intercept (alpha)

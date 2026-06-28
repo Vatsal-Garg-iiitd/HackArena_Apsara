@@ -139,16 +139,6 @@ class MacroRegime(BaseModel):
     context_string: str = ""
 
 
-class InstitutionalFlow(BaseModel):
-    """13F-derived institutional flow signals."""
-    net_institutional_shares: Optional[float] = None
-    net_institutional_pct_float: Optional[float] = None
-    new_initiations: int = 0
-    complete_liquidations: int = 0
-    top20_concentration_hhi: Optional[float] = None
-    quality_weighted_flow: Optional[float] = None
-
-
 class DataQualityReport(BaseModel):
     """Tracks data completeness for each ticker."""
     ticker: str
@@ -172,5 +162,4 @@ class Tier0Output(BaseModel):
     factor_exposure: Optional[FactorExposureReport] = None
     options_signals: Optional[OptionsSignals] = None
     macro_regime: Optional[MacroRegime] = None
-    institutional_flow: Optional[InstitutionalFlow] = None
     data_quality: Optional[DataQualityReport] = None

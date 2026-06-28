@@ -129,7 +129,3 @@ class GeneralExpertOutput(BaseModel):
     data_quality_score: float = Field(ge=0.0, le=1.0, default=1.0)
     macro_regime_adjustment: Optional[str] = None
     consistency_flags: List[str] = Field(default_factory=list, description="Flags from semantic consistency checker")
-
-
-class GeneralExpertBatch(BaseModel):
-    results: List[GeneralExpertOutput]
