@@ -74,6 +74,38 @@ class QuantSynthesizerBatch(BaseModel):
     results: List[QuantSynthesizerOutput]
 
 
+# --- Tier 1C: Raw OHLCV Analyzer Schema ---
+
+class RawOHLCVAnalysis(BaseModel):
+    """Deterministic interpretation of raw yfinance OHLCV data."""
+    ticker: str
+    as_of: str
+    lookback_days: int = 0
+    close: Optional[float] = None
+    return_5d: Optional[float] = None
+    return_21d: Optional[float] = None
+    return_63d: Optional[float] = None
+    return_126d: Optional[float] = None
+    return_252d: Optional[float] = None
+    annualized_volatility: Optional[float] = None
+    downside_volatility: Optional[float] = None
+    trend_direction: Literal["bullish", "bearish", "neutral"]
+    trend_strength: float = Field(ge=0.0, le=1.0, default=0.0)
+    moving_average_alignment: Literal["bullish", "bearish", "mixed", "unavailable"] = "unavailable"
+    ma_20: Optional[float] = None
+    ma_50: Optional[float] = None
+    ma_200: Optional[float] = None
+    drawdown_from_52w_high: Optional[float] = None
+    price_location_52w: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    volume_zscore_63d: Optional[float] = None
+    volume_trend: Literal["accumulating", "distributing", "neutral", "unavailable"] = "unavailable"
+    atr_pct_14d: Optional[float] = None
+    regime_label: str = "unknown"
+    summary_signals: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    data_quality_score: float = Field(ge=0.0, le=1.0, default=1.0)
+
+
 # --- Tier 1B: Narrative Synthesizer Schema ---
 
 class NewsSentiment(BaseModel):

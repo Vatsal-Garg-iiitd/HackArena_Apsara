@@ -10,6 +10,7 @@ async def run_general_expert(
     ticker: str,
     tier1a_json: Dict[str, Any],
     tier1b_json: Dict[str, Any],
+    tier1c_json: Optional[Dict[str, Any]] = None,
     macro_regime: Optional[str] = None,
     consistency_flags: Optional[list] = None,
 ) -> Dict[str, Any]:
@@ -38,8 +39,10 @@ async def run_general_expert(
 
     system_instruction = f"""
     You are the lead analyst. Merge the quantitative and qualitative
-    reports below into one signal. If they conflict, say so explicitly rather
-    than averaging them away. You must provide two distinct signals: 
+    reports below into one signal. Tier 1C is a deterministic raw OHLCV
+    analysis from yfinance; use it primarily for tactical trend, volatility,
+    volume-confirmation, and drawdown context. If reports conflict, say so
+    explicitly rather than averaging them away. You must provide two distinct signals:
     a tactical_horizon_30d signal based on technicals and momentum, and 
     a structural_horizon_1y signal based on balance sheet solvency and margins.
     
@@ -63,6 +66,9 @@ async def run_general_expert(
     
     [NARRATIVE_REPORT]
     {json.dumps(tier1b_json)}
+
+    [RAW_OHLCV_REPORT]
+    {json.dumps(tier1c_json or {})}
     {macro_context}
     
     Provide signals for {ticker}.
@@ -81,6 +87,8 @@ async def run_general_expert(
         # Inject consistency flags into the result
         if consistency_flags:
             result["consistency_flags"] = consistency_flags
+        if tier1c_json:
+            result["tier1c_ohlcv_analysis"] = tier1c_json
         return result
     else:
         logger.error(f"Error parsing General Expert JSON for {ticker}.")

@@ -18,6 +18,7 @@ from pipeline.infra.logging_config import PipelineRunTracker
 from pipeline.tier0_numeric import generate_tier0_output
 from pipeline.tier1_llm.quant_synthesizer import run_quant_synthesizer
 from pipeline.tier1_llm.narrative_synthesizer import run_narrative_synthesizer
+from pipeline.tier1_llm.ohlcv_analyzer import run_ohlcv_analyzer
 from pipeline.tier2_llm.general_expert import run_general_expert
 
 logger = logging.getLogger(__name__)
@@ -137,10 +138,37 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
     await asyncio.gather(*(run_1b_for_ticker(t) for t in valid_tickers))
 
     # =====================================================================
+    # TIER 1C: Raw OHLCV Analyzer (deterministic yfinance market structure)
+    # =====================================================================
+    tier1c_outputs = {}
+    tickers_to_run_1c = []
+
+    for ticker in valid_tickers:
+        t1c_cache_key = f"{ticker}:{today_str}:ohlcv_v1"
+        tier1c_out = cache.get(t1c_cache_key) if not force_refresh else None
+
+        if tier1c_out:
+            tracker.record_cache_hit("tier1c", ticker)
+            tier1c_outputs[ticker] = tier1c_out
+            print(f"  ⟳ {ticker}: Tier 1C cache hit")
+        else:
+            tickers_to_run_1c.append(ticker)
+
+    if tickers_to_run_1c:
+        with tracker.track_stage("tier1c", ",".join(tickers_to_run_1c)):
+            print(f"  → Running Tier 1C raw OHLCV analyzer for: {tickers_to_run_1c}")
+            t1c_map = await run_ohlcv_analyzer(tickers_to_run_1c)
+
+            for ticker, analysis in t1c_map.items():
+                payload = analysis.model_dump(mode="json")
+                tier1c_outputs[ticker] = payload
+                cache.set(f"{ticker}:{today_str}:ohlcv_v1", payload)
+
+    # =====================================================================
     # TIER 2: General Expert (synthesis + final signal)
     # =====================================================================
     async def run_2_for_ticker(ticker: str):
-        t2_cache_key = f"{ticker}:{today_str}:general_v2"
+        t2_cache_key = f"{ticker}:{today_str}:general_v3"
         tier2_out = cache.get(t2_cache_key) if not force_refresh else None
 
         if tier2_out:
@@ -152,6 +180,7 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
                 print(f"  → Running Tier 2 for: {ticker}")
                 t1a = tier1a_outputs.get(ticker, {})
                 t1b = tier1b_outputs.get(ticker, {})
+                t1c = tier1c_outputs.get(ticker, {})
 
                 # Gather consistency flags from Tier 1A
                 tier0_data = tier0_outputs[ticker].model_dump()
@@ -163,7 +192,7 @@ async def run_pipeline(tickers: List[str], force_refresh: bool = False) -> Dict[
                 macro_context = macro.context_string if macro else None
 
                 out = await run_general_expert(
-                    ticker, t1a, t1b,
+                    ticker, t1a, t1b, t1c,
                     macro_regime=macro_context,
                     consistency_flags=consistency_flags if consistency_flags else None,
                 )
