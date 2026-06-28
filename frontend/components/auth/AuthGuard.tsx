@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { QuantyAssistant } from "@/components/quanty/QuantyAssistant";
 import { supabase } from "@/lib/supabase";
 
 export function AuthGuard({ children }: { children: ReactNode }) {
@@ -56,5 +57,10 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <QuantyAssistant />
+    </>
+  );
 }

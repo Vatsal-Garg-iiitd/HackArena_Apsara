@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Activity, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowLeft, ArrowUp, Activity, Trash2 } from "lucide-react";
+import { MouseEvent, useEffect, useMemo, useState } from "react";
 import { ProfileMenu } from "@/components/auth/ProfileMenu";
 import { getPortfolioItems, PortfolioItem, removePortfolioItem } from "@/lib/portfolio";
 import { formatCompact, formatCurrency, formatNumber, formatPercent } from "@/lib/formatters";
-import type { Candle } from "@/lib/types";
+import type { Candle, Company } from "@/lib/types";
 
 type PortfolioPrediction = {
   derived_parameters: {
@@ -56,6 +56,7 @@ function usableCandles(candles: Candle[]) {
 }
 
 function PortfolioChart({ candles }: { candles: Candle[] }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const points = usableCandles(candles).slice(-120);
   const width = 760;
   const height = 260;
@@ -74,17 +75,106 @@ function PortfolioChart({ candles }: { candles: Candle[] }) {
   const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(point.close as number)}`).join(" ");
   const rising = closes[closes.length - 1] >= closes[0];
   const stroke = rising ? "#079b83" : "#d65a50";
+  const hovered = hoverIndex === null ? null : points[hoverIndex];
+
+  function handleMove(event: MouseEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const index = Math.max(0, Math.min(points.length - 1, Math.round(ratio * (points.length - 1))));
+    setHoverIndex(index);
+  }
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full" role="img" aria-label="Portfolio stock price history">
-      {[0, 1, 2].map((line) => {
-        const gy = padY + (line / 2) * (height - padY * 2);
-        return <line key={line} x1={padX} x2={width - padX} y1={gy} y2={gy} stroke="#eef1f4" />;
-      })}
-      <path d={path} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={`${path} L ${width - padX} ${height - padY} L ${padX} ${height - padY} Z`} fill={rising ? "rgba(7,155,131,0.08)" : "rgba(214,90,80,0.08)"} />
-    </svg>
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-[260px] w-full"
+        role="img"
+        aria-label="Portfolio stock price history"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIndex(null)}
+      >
+        {[0, 1, 2].map((line) => {
+          const gy = padY + (line / 2) * (height - padY * 2);
+          return <line key={line} x1={padX} x2={width - padX} y1={gy} y2={gy} stroke="#eef1f4" />;
+        })}
+        <path d={`${path} L ${width - padX} ${height - padY} L ${padX} ${height - padY} Z`} fill={rising ? "rgba(7,155,131,0.08)" : "rgba(214,90,80,0.08)"} />
+        <path d={path} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {hovered && (
+          <g>
+            <line x1={x(hoverIndex as number)} x2={x(hoverIndex as number)} y1={padY} y2={height - padY} stroke="#94a3b8" strokeDasharray="4 4" />
+            <circle cx={x(hoverIndex as number)} cy={y(hovered.close as number)} r="4" fill={stroke} stroke="#fff" strokeWidth="2" />
+          </g>
+        )}
+      </svg>
+      {hovered && (
+        <div
+          className="pointer-events-none absolute z-20 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg"
+          style={{
+            left: `${Math.min(78, Math.max(6, (x(hoverIndex as number) / width) * 100))}%`,
+            top: `${Math.max(6, Math.min(74, (y(hovered.close as number) / height) * 100))}%`
+          }}
+        >
+          <div className="font-semibold text-slate-700">{hovered.date}</div>
+          <div className="mt-1 font-mono text-slate-500">{formatCurrency(hovered.close)}</div>
+        </div>
+      )}
+    </div>
   );
+}
+
+function combinePortfolioCandles(items: PortfolioItem[]): Candle[] {
+  const byDate = new Map<string, Candle>();
+
+  items.forEach((item) => {
+    usableCandles(item.stock_snapshot?.candles ?? []).forEach((candle) => {
+      const current = byDate.get(candle.date) ?? {
+        date: candle.date,
+        open: 0,
+        high: 0,
+        low: 0,
+        close: 0,
+        volume: 0
+      };
+
+      byDate.set(candle.date, {
+        date: candle.date,
+        open: (current.open ?? 0) + (candle.open ?? 0),
+        high: (current.high ?? 0) + (candle.high ?? 0),
+        low: (current.low ?? 0) + (candle.low ?? 0),
+        close: (current.close ?? 0) + (candle.close ?? 0),
+        volume: (current.volume ?? 0) + (candle.volume ?? 0)
+      });
+    });
+  });
+
+  return Array.from(byDate.values()).sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function buildAggregateSnapshot(items: PortfolioItem[]): Company | null {
+  if (items.length === 0) return null;
+
+  const candles = combinePortfolioCandles(items);
+  const price = items.reduce((sum, item) => sum + (item.spot_price ?? item.price ?? 0), 0);
+  const previousClose = items.reduce((sum, item) => sum + (item.previous_close ?? 0), 0);
+  const change = previousClose ? price - previousClose : null;
+
+  return {
+    symbol: "PORTFOLIO",
+    ticker: "PORTFOLIO",
+    name: "Overall Portfolio",
+    sector: "Combined holdings",
+    marketCap: items.reduce((sum, item) => sum + (item.market_cap ?? 0), 0),
+    price,
+    change,
+    changePercent: previousClose && change !== null ? (change / previousClose) * 100 : null,
+    open: items.reduce((sum, item) => sum + (item.open ?? 0), 0),
+    high: items.reduce((sum, item) => sum + (item.high ?? 0), 0),
+    low: items.reduce((sum, item) => sum + (item.low ?? 0), 0),
+    previousClose,
+    volume: items.reduce((sum, item) => sum + (item.volume ?? 0), 0),
+    candles
+  };
 }
 
 function DetailMetric({ label, value }: { label: string; value: string }) {
@@ -94,6 +184,35 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
       <div className="mt-1 font-mono text-sm font-semibold text-slate-800">{value}</div>
     </div>
   );
+}
+
+function impliedStockPrice(prediction: PortfolioPrediction, methodPrice: number) {
+  const { K, option_type } = prediction.derived_parameters;
+  return option_type === "put" ? Math.max(0, K - methodPrice) : K + methodPrice;
+}
+
+function predictionDirection(prediction: PortfolioPrediction, averageStockPrice: number) {
+  return averageStockPrice >= prediction.derived_parameters.S ? "up" : "down";
+}
+
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    const message = text.includes("Cannot find module")
+      ? "The local Next.js build cache is stale. Restart the dev server and refresh the page."
+      : fallbackMessage;
+
+    throw new Error(message);
+  }
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || fallbackMessage);
+  }
+
+  return data as T;
 }
 
 export function PortfolioClient() {
@@ -112,7 +231,7 @@ export function PortfolioClient() {
   useEffect(() => {
     getPortfolioItems().then(({ items: portfolioItems, error }) => {
       setItems(portfolioItems);
-      setSelectedSymbol(portfolioItems[0]?.symbol ?? null);
+      setSelectedSymbol(null);
       setMessage(error);
       setLoading(false);
     });
@@ -125,11 +244,45 @@ export function PortfolioClient() {
   }, [items]);
 
   const selectedItem = useMemo(() => {
-    return items.find((item) => item.symbol === selectedSymbol) ?? items[0] ?? null;
+    return selectedSymbol ? items.find((item) => item.symbol === selectedSymbol) ?? null : null;
   }, [items, selectedSymbol]);
 
+  const aggregateSnapshot = useMemo(() => buildAggregateSnapshot(items), [items]);
+
+  const activeView = useMemo(() => {
+    if (selectedItem) {
+      return {
+        symbol: selectedItem.symbol,
+        name: selectedItem.name,
+        subtitle: `${selectedItem.sector ?? "Stock"} - ${selectedItem.index_name ?? "Portfolio"}`,
+        price: selectedItem.spot_price ?? selectedItem.price,
+        change: selectedItem.change,
+        changePercent: selectedItem.change_percent,
+        strike: selectedItem.strike_price,
+        riskFreeRate: selectedItem.risk_free_rate,
+        snapshot: selectedItem.stock_snapshot,
+        isOverall: false
+      };
+    }
+
+    if (!aggregateSnapshot) return null;
+
+    return {
+      symbol: "PORTFOLIO",
+      name: "Overall Portfolio",
+      subtitle: `${items.length} combined holdings`,
+      price: aggregateSnapshot.price,
+      change: aggregateSnapshot.change,
+      changePercent: aggregateSnapshot.changePercent,
+      strike: aggregateSnapshot.price,
+      riskFreeRate: 0.05,
+      snapshot: aggregateSnapshot,
+      isOverall: true
+    };
+  }, [aggregateSnapshot, items.length, selectedItem]);
+
   useEffect(() => {
-    if (!selectedItem) {
+    if (!activeView) {
       setPrediction(null);
       return;
     }
@@ -144,20 +297,18 @@ export function PortfolioClient() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        symbol: selectedItem.symbol,
-        name: selectedItem.name,
-        price: selectedItem.spot_price ?? selectedItem.price,
-        strike_price: selectedItem.strike_price,
-        risk_free_rate: selectedItem.risk_free_rate,
+        symbol: activeView.symbol,
+        name: activeView.name,
+        price: activeView.price,
+        strike_price: activeView.strike,
+        risk_free_rate: activeView.riskFreeRate,
         option_type: "call",
         num_paths: 10000,
-        stock_snapshot: selectedItem.stock_snapshot
+        stock_snapshot: activeView.snapshot
       })
     })
       .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Prediction failed.");
-        return data as PortfolioPrediction;
+        return readApiJson<PortfolioPrediction>(response, "Prediction failed.");
       })
       .then((data) => {
         if (active) setPrediction(data);
@@ -175,7 +326,7 @@ export function PortfolioClient() {
     return () => {
       active = false;
     };
-  }, [selectedItem]);
+  }, [activeView]);
 
   useEffect(() => {
     if (!selectedItem) {
@@ -199,9 +350,7 @@ export function PortfolioClient() {
       })
     })
       .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Sentiment fetch failed.");
-        return data as StockSentiment;
+        return readApiJson<StockSentiment>(response, "Sentiment fetch failed.");
       })
       .then((data) => {
         if (active) setSentiment(data);
@@ -233,7 +382,7 @@ export function PortfolioClient() {
 
     setItems((current) => {
       const next = current.filter((item) => item.symbol !== symbol);
-      if (selectedSymbol === symbol) setSelectedSymbol(next[0]?.symbol ?? null);
+      if (selectedSymbol === symbol) setSelectedSymbol(null);
       return next;
     });
     setMessage(`${symbol} removed from portfolio.`);
@@ -275,24 +424,24 @@ export function PortfolioClient() {
           </div>
         )}
 
-        {selectedItem && (
+        {activeView && (
           <section className="mb-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="surface-panel rounded-lg border">
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
                 <div>
-                  <div className="font-mono text-sm text-slate-500">{selectedItem.symbol}</div>
-                  <h2 className="mt-1 text-xl font-semibold text-slate-800">{selectedItem.name}</h2>
-                  <p className="mt-1 text-sm text-slate-400">{selectedItem.sector} · {selectedItem.index_name}</p>
+                  <div className="font-mono text-sm text-slate-500">{activeView.symbol}</div>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-800">{activeView.name}</h2>
+                  <p className="mt-1 text-sm text-slate-400">{activeView.subtitle}</p>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-2xl font-semibold text-slate-800">{formatCurrency(selectedItem.spot_price ?? selectedItem.price)}</div>
-                  <div className={`font-mono text-sm font-semibold ${(selectedItem.change_percent ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {formatNumber(selectedItem.change)} ({formatPercent(selectedItem.change_percent)})
+                  <div className="font-mono text-2xl font-semibold text-slate-800">{formatCurrency(activeView.price)}</div>
+                  <div className={`font-mono text-sm font-semibold ${(activeView.changePercent ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {formatNumber(activeView.change)} ({formatPercent(activeView.changePercent)})
                   </div>
                 </div>
               </div>
               <div className="px-4 py-3">
-                <PortfolioChart candles={selectedItem.stock_snapshot?.candles ?? []} />
+                <PortfolioChart candles={activeView.snapshot?.candles ?? []} />
               </div>
               <div className="border-t border-slate-200 px-4 py-4">
                 <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Predicted Option Price</h2>
@@ -306,22 +455,35 @@ export function PortfolioClient() {
                   </div>
                 ) : prediction ? (
                   <div className="grid gap-3 md:grid-cols-3">
-                    {prediction.predictions.map((row) => (
-                      <div key={row.horizon_days} className="rounded border border-slate-200 bg-white/85 p-3 shadow-sm">
-                        <div className="mb-3 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-700">Day {row.horizon_days}</span>
-                          <span className="font-mono text-lg font-semibold text-emerald-700">
-                            {formatCurrency(row.average_price)}
-                          </span>
+                    {prediction.predictions.map((row) => {
+                      const methodPrices = {
+                        monte_carlo: impliedStockPrice(prediction, row.methods.monte_carlo.price),
+                        fosm: impliedStockPrice(prediction, row.methods.fosm.price),
+                        pem: impliedStockPrice(prediction, row.methods.pem.price),
+                        taguchi: impliedStockPrice(prediction, row.methods.taguchi.price)
+                      };
+                      const averageStockPrice =
+                        (methodPrices.monte_carlo + methodPrices.fosm + methodPrices.pem + methodPrices.taguchi) / 4;
+                      const direction = predictionDirection(prediction, averageStockPrice);
+
+                      return (
+                        <div key={row.horizon_days} className="rounded border border-slate-200 bg-white/85 p-3 shadow-sm">
+                          <div className="mb-3 flex items-center justify-between">
+                            <span className="text-sm font-semibold text-slate-700">Day {row.horizon_days}</span>
+                            <span className={`inline-flex items-center gap-1 font-mono text-lg font-semibold ${direction === "up" ? "text-emerald-700" : "text-red-600"}`}>
+                              {direction === "up" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                              {formatCurrency(averageStockPrice)}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                            <span className="rounded bg-slate-50 px-2 py-1">MC {formatCurrency(methodPrices.monte_carlo)}</span>
+                            <span className="rounded bg-slate-50 px-2 py-1">FOSM {formatCurrency(methodPrices.fosm)}</span>
+                            <span className="rounded bg-slate-50 px-2 py-1">PEM {formatCurrency(methodPrices.pem)}</span>
+                            <span className="rounded bg-slate-50 px-2 py-1">Taguchi {formatCurrency(methodPrices.taguchi)}</span>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                          <span className="rounded bg-slate-50 px-2 py-1">MC {formatCurrency(row.methods.monte_carlo.price)}</span>
-                          <span className="rounded bg-slate-50 px-2 py-1">FOSM {formatCurrency(row.methods.fosm.price)}</span>
-                          <span className="rounded bg-slate-50 px-2 py-1">PEM {formatCurrency(row.methods.pem.price)}</span>
-                          <span className="rounded bg-slate-50 px-2 py-1">Taguchi {formatCurrency(row.methods.taguchi.price)}</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="rounded border border-slate-200 bg-white/80 px-3 py-4 text-sm text-slate-500">
@@ -395,12 +557,14 @@ export function PortfolioClient() {
                 )}
               </section>
               <section className="surface-card rounded-lg border p-4">
-                <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Stock Snapshot</h2>
+                <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {activeView.isOverall ? "Portfolio Snapshot" : "Stock Snapshot"}
+                </h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <DetailMetric label="Spot" value={formatCurrency(selectedItem.spot_price ?? selectedItem.price)} />
-                  <DetailMetric label="Strike" value={formatNumber(selectedItem.strike_price)} />
-                  <DetailMetric label="Risk-free" value={selectedItem.risk_free_rate === null ? "NA" : formatPercent(selectedItem.risk_free_rate * 100)} />
-                  <DetailMetric label="Health" value={selectedItem.health_status ?? selectedItem.config?.healthStatus ?? "Neutral"} />
+                  <DetailMetric label={activeView.isOverall ? "Total Spot" : "Spot"} value={formatCurrency(activeView.price)} />
+                  <DetailMetric label="Strike" value={formatNumber(activeView.strike)} />
+                  <DetailMetric label="Risk-free" value={activeView.riskFreeRate === null ? "NA" : formatPercent((activeView.riskFreeRate ?? 0.05) * 100)} />
+                  <DetailMetric label="Health" value={activeView.isOverall ? "Combined" : selectedItem?.health_status ?? selectedItem?.config?.healthStatus ?? "Neutral"} />
                 </div>
               </section>
             </aside>
@@ -409,8 +573,25 @@ export function PortfolioClient() {
 
         <section className="surface-panel rounded-lg border">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="text-lg font-semibold text-slate-800">Portfolio holdings</h2>
-            <p className="text-sm text-slate-400">Saved per user in Supabase for future computation and calculations.</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Portfolio holdings</h2>
+                <p className="text-sm text-slate-400">Saved per user in Supabase for future computation and calculations.</p>
+              </div>
+              {items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSymbol(null)}
+                  className={`h-9 rounded border px-3 text-sm font-semibold ${
+                    selectedSymbol === null
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  Overall portfolio
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (
