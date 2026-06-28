@@ -48,13 +48,6 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function cleanTranscript(results: SpeechRecognitionResultList) {
-  return Array.from(results)
-    .map((result) => result[0]?.transcript || "")
-    .join(" ")
-    .trim();
-}
-
 export function QuantyAssistant() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -64,13 +57,16 @@ export function QuantyAssistant() {
   const [listening, setListening] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const liveTranscriptRef = useRef("");
+  const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-
-  const transcriptSupported = useMemo(() => {
+  const recordingSupported = useMemo(() => {
     if (typeof window === "undefined") return false;
-    return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+    return typeof navigator.mediaDevices?.getUserMedia === "function" && typeof window.MediaRecorder === "function";
   }, []);
 
   useEffect(() => {
@@ -79,11 +75,28 @@ export function QuantyAssistant() {
 
   useEffect(() => {
     return () => {
+      mediaRecorderRef.current?.stop();
       recognitionRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       audioRef.current?.pause();
       if (audioRef.current?.src) URL.revokeObjectURL(audioRef.current.src);
     };
   }, []);
+
+  async function transcribeRecording(audio: Blob) {
+    const formData = new FormData();
+    formData.append("audio", audio, `quanty-recording.${audio.type.includes("mp4") ? "mp4" : "webm"}`);
+
+    const response = await fetch("/api/quanty/transcribe", {
+      method: "POST",
+      body: formData
+    });
+
+    const payload = (await response.json()) as { transcript?: string; error?: string };
+    if (!response.ok) throw new Error(payload.error || "Quanty could not transcribe that recording.");
+
+    return payload.transcript?.trim() || "";
+  }
 
   async function speak(text: string) {
     if (!voiceEnabled || !text.trim()) return;
@@ -157,46 +170,105 @@ export function QuantyAssistant() {
     askQuanty(input);
   }
 
-  function toggleListening() {
-    if (!transcriptSupported) {
-      setNotice("Voice input is not supported by this browser.");
+  async function handleRecordingStop() {
+    const audio = new Blob(audioChunksRef.current, {
+      type: mediaRecorderRef.current?.mimeType || "audio/webm"
+    });
+    audioChunksRef.current = [];
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+
+    if (!audio.size) {
+      setNotice("No audio was recorded. Please try again.");
+      return;
+    }
+
+    setBusy(true);
+    setNotice("Writing your recording...");
+
+    try {
+      let transcript = "";
+      try {
+        transcript = await transcribeRecording(audio);
+      } catch {
+        transcript = liveTranscriptRef.current.trim();
+      }
+
+      if (!transcript) throw new Error("No speech was detected in that recording.");
+      setInput(transcript);
+      setNotice(null);
+      setBusy(false);
+      await askQuanty(transcript);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Quanty could not transcribe that recording.");
+      setBusy(false);
+    }
+  }
+
+  async function toggleListening() {
+    if (!recordingSupported) {
+      setNotice("Voice recording is not supported by this browser.");
       return;
     }
 
     if (listening) {
+      mediaRecorderRef.current?.stop();
       recognitionRef.current?.stop();
       setListening(false);
       return;
     }
 
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = Recognition ? new Recognition() : null;
 
-    const recognition = new Recognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+      audioChunksRef.current = [];
+      liveTranscriptRef.current = "";
+      mediaStreamRef.current = stream;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) audioChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setNotice("I could not record that clearly. Please try again.");
+        setListening(false);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      recorder.onstop = () => {
+        setListening(false);
+        handleRecordingStop();
+      };
 
-    recognition.onresult = (event) => {
-      const transcript = cleanTranscript(event.results);
-      setInput(transcript);
-    };
-    recognition.onerror = () => {
-      setNotice("I could not hear that clearly. Please try again.");
+      mediaRecorderRef.current = recorder;
+      if (recognition) {
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+        recognition.onresult = (event) => {
+          liveTranscriptRef.current = Array.from(event.results)
+            .map((result) => result[0]?.transcript || "")
+            .join(" ")
+            .trim();
+          if (liveTranscriptRef.current) setInput(liveTranscriptRef.current);
+        };
+        recognition.onerror = () => {
+          recognitionRef.current = null;
+        };
+        recognition.onend = null;
+        recognitionRef.current = recognition;
+        recognition.start();
+      }
+      setNotice(null);
+      setListening(true);
+      recorder.start();
+    } catch {
+      setNotice("Microphone permission is needed to record your question.");
       setListening(false);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      setInput((current) => {
-        if (current.trim()) askQuanty(current);
-        return current;
-      });
-    };
-
-    recognitionRef.current = recognition;
-    setNotice(null);
-    setListening(true);
-    recognition.start();
+    }
   }
 
   return (
@@ -272,7 +344,7 @@ export function QuantyAssistant() {
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder={listening ? "Listening..." : "Ask Quanty"}
+                placeholder={listening ? "Recording..." : "Ask Quanty"}
                 className="h-10 min-w-0 flex-1 rounded border border-slate-200 px-3 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
               />
               <button
