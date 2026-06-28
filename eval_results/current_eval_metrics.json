@@ -1,0 +1,176 @@
+{
+  "summary": {
+    "tickers": [
+      "AAPL",
+      "MSFT"
+    ],
+    "as_of": "2026-06-28",
+    "sample_size": 2,
+    "schema_valid_rates": {
+      "tier1a": 1.0,
+      "tier1b": 1.0,
+      "tier1c": 1.0,
+      "tier2": 1.0
+    },
+    "tier1a_numeric_consistency_rate_proxy": 1.0,
+    "tier1a_avg_consistency_multiplier": 1.0,
+    "tier1a_avg_confidence": 0.8072,
+    "tier1b_avg_confidence": 0.5687,
+    "tier1c_avg_quality": 1.0,
+    "tier2_avg_confidence_legacy": 0.7375,
+    "tier2_simple_conflict_score_legacy": 1.0,
+    "quota_limited": true,
+    "tier2_current_general_v3_completed": false,
+    "notes": [
+      "Gemini quota was exhausted during live Tier 2 execution, so current general_v3 outputs were not available.",
+      "Tier 2 scores use latest cached general_v2 outputs where available; these are legacy outputs and may not include Tier 1C.",
+      "No human gold labels or future returns were available, so classification accuracy, F1, Sharpe, and realized return metrics are not claimable yet."
+    ]
+  },
+  "records": [
+    {
+      "ticker": "AAPL",
+      "keys": {
+        "tier1a": "AAPL:2026-06-28:quant_v2",
+        "tier1b": "AAPL:2026Q2:narrative_v2",
+        "tier1c": "AAPL:2026-06-28:ohlcv_v1",
+        "tier2": "AAPL:2026-06-28:general_v2"
+      },
+      "schemas": {
+        "tier1a": {
+          "valid": true,
+          "error": null
+        },
+        "tier1b": {
+          "valid": true,
+          "error": null
+        },
+        "tier1c": {
+          "valid": true,
+          "error": null
+        },
+        "tier2": {
+          "valid": true,
+          "error": null
+        }
+      },
+      "tier0_quality": 1.0,
+      "tier1a": {
+        "avg_confidence": 0.7714,
+        "consistency_multiplier": 1.0,
+        "inconsistency_count": 0,
+        "inconsistencies": [],
+        "labels": {
+          "solvency": "improving",
+          "profitability": "strong",
+          "technical": "neutral",
+          "macro_fit": "neutral"
+        }
+      },
+      "tier1b": {
+        "avg_confidence": 0.6625,
+        "labels": {
+          "news_tone": "mixed",
+          "earnings_tone": "neutral",
+          "guidance": "none_given",
+          "competitive_position": "gaining"
+        },
+        "risk_flag_count": 4,
+        "news_driver_count": 3
+      },
+      "tier1c": {
+        "data_quality_score": 1.0,
+        "trend_direction": "bullish",
+        "trend_strength": 0.2355,
+        "volume_trend": "distributing",
+        "regime_label": "trend_up_low_vol",
+        "summary_signal_count": 2
+      },
+      "tier2": {
+        "avg_confidence": 0.725,
+        "legacy_consistency_multiplier": 1.0,
+        "legacy_inconsistency_count": 0,
+        "legacy_inconsistencies": [],
+        "simple_conflict_score": {
+          "issues": [],
+          "score": 1.0
+        },
+        "tactical_direction": "neutral",
+        "structural_direction": "bullish",
+        "is_tier1c_aware": false
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "keys": {
+        "tier1a": "MSFT:2026-06-28:quant_v2",
+        "tier1b": "MSFT:2026Q2:narrative_v2",
+        "tier1c": "MSFT:2026-06-28:ohlcv_v1",
+        "tier2": "MSFT:2026-06-27:general_v2"
+      },
+      "schemas": {
+        "tier1a": {
+          "valid": true,
+          "error": null
+        },
+        "tier1b": {
+          "valid": true,
+          "error": null
+        },
+        "tier1c": {
+          "valid": true,
+          "error": null
+        },
+        "tier2": {
+          "valid": true,
+          "error": null
+        }
+      },
+      "tier0_quality": 1.0,
+      "tier1a": {
+        "avg_confidence": 0.8429,
+        "consistency_multiplier": 1.0,
+        "inconsistency_count": 0,
+        "inconsistencies": [],
+        "labels": {
+          "solvency": "deteriorating",
+          "profitability": "strong",
+          "technical": "oversold",
+          "macro_fit": "neutral"
+        }
+      },
+      "tier1b": {
+        "avg_confidence": 0.475,
+        "labels": {
+          "news_tone": "mixed",
+          "earnings_tone": "neutral",
+          "guidance": "none_given",
+          "competitive_position": "gaining"
+        },
+        "risk_flag_count": 3,
+        "news_driver_count": 3
+      },
+      "tier1c": {
+        "data_quality_score": 1.0,
+        "trend_direction": "bearish",
+        "trend_strength": 0.3808,
+        "volume_trend": "distributing",
+        "regime_label": "trend_down_low_vol",
+        "summary_signal_count": 5
+      },
+      "tier2": {
+        "avg_confidence": 0.75,
+        "legacy_consistency_multiplier": 1.0,
+        "legacy_inconsistency_count": 0,
+        "legacy_inconsistencies": [],
+        "simple_conflict_score": {
+          "issues": [],
+          "score": 1.0
+        },
+        "tactical_direction": "neutral",
+        "structural_direction": "bullish",
+        "is_tier1c_aware": false
+      }
+    }
+  ]
+}

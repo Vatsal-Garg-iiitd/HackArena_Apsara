@@ -77,7 +77,7 @@ class QuantSynthesizerBatch(BaseModel):
 # --- Tier 1C: Raw OHLCV Analyzer Schema ---
 
 class RawOHLCVAnalysis(BaseModel):
-    """Deterministic interpretation of raw yfinance OHLCV data."""
+    """Tier 1C interpretation of raw yfinance OHLCV data."""
     ticker: str
     as_of: str
     lookback_days: int = 0
@@ -100,6 +100,12 @@ class RawOHLCVAnalysis(BaseModel):
     volume_zscore_63d: Optional[float] = None
     volume_trend: Literal["accumulating", "distributing", "neutral", "unavailable"] = "unavailable"
     atr_pct_14d: Optional[float] = None
+    moirai_status: Literal["not_run", "ok", "unavailable", "failed"] = "not_run"
+    moirai_model: Optional[str] = None
+    moirai_implied_return_5d: Optional[float] = None
+    moirai_implied_volatility: Optional[float] = None
+    moirai_directional_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    moirai_regime_uncertainty: Optional[float] = None
     regime_label: str = "unknown"
     summary_signals: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)

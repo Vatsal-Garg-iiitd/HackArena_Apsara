@@ -478,7 +478,22 @@ async def _generate_tier0_for_api(ticker: str, mode: str) -> Dict[str, Any]:
     tier0 = await asyncio.to_thread(generate_tier0_output, ticker)
     if tier0 is None:
         raise HTTPException(status_code=422, detail=f"Tier 0 could not produce usable data for {ticker}.")
-    return tier0.model_dump(mode="json")
+    data = tier0.model_dump(mode="json")
+    data["mode"] = mode
+    return data
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "hackarena-pipeline-api",
+        "message": "Pipeline API is running.",
+        "health": "/health",
+        "config": "/v1/config",
+        "fundamentals": "/v1/fundamentals/{ticker}",
+        "pipeline": "/v1/pipeline/run",
+    }
 
 
 @app.get("/health")

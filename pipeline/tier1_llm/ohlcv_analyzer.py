@@ -1,9 +1,10 @@
 """
-Tier 1C - raw OHLCV analyzer.
+Tier 1C - raw OHLCV analyzer with optional Moirai 1.1-R forecasting.
 
-This module interprets raw yfinance OHLCV frames without calling an LLM. It is
-designed to sit beside Tier 1A/1B as a market-structure read that Tier 2 can use
-for tactical context.
+This module interprets raw yfinance OHLCV frames and, when the optional Moirai
+dependencies are installed, runs Salesforce Moirai 1.1-R as the multivariate
+OHLCV forecasting layer. Moirai 1.1 is used intentionally because Moirai 2.0
+removed multivariate support.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, timedelta
+from functools import lru_cache
 from typing import Dict, Iterable, Optional
 
 import numpy as np
@@ -22,6 +24,7 @@ from pipeline.schemas.llm_schemas import RawOHLCVAnalysis
 logger = logging.getLogger(__name__)
 
 OHLCV_COLS = ["Open", "High", "Low", "Close", "Volume"]
+CLOSE_IDX = 3
 
 
 def _to_float(value: object) -> Optional[float]:
@@ -166,10 +169,115 @@ def _atr_pct_14d(df: pd.DataFrame) -> Optional[float]:
     return float(atr / latest)
 
 
-def analyze_ohlcv_frame(ticker: str, raw_df: pd.DataFrame) -> RawOHLCVAnalysis:
-    """Analyze one raw OHLCV frame and return a structured Tier 1C report."""
+@lru_cache(maxsize=3)
+def _get_moirai_model(size: str, context_length: int, prediction_length: int):
+    """
+    Load and cache Moirai 1.1-R.
+
+    The import happens lazily so local tests and API routes still work when the
+    heavyweight optional forecasting dependencies are not installed.
+    """
+    from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
+
+    model_name = f"Salesforce/moirai-1.1-R-{size}"
+    logger.info("Loading %s for Tier 1C OHLCV forecasting", model_name)
+    return MoiraiForecast(
+        module=MoiraiModule.from_pretrained(model_name),
+        prediction_length=prediction_length,
+        context_length=context_length,
+        patch_size="auto",
+        num_samples=100,
+        target_dim=5,
+        feat_dynamic_real_dim=0,
+        past_feat_dynamic_real_dim=0,
+    )
+
+
+def _prepare_moirai_frame(df: pd.DataFrame) -> pd.DataFrame:
+    model_df = df[OHLCV_COLS].copy()
+    model_df["Volume"] = np.log1p(model_df["Volume"].clip(lower=0.0))
+    return model_df
+
+
+def _infer_moirai_batch(
+    frames: Dict[str, pd.DataFrame],
+    model_size: str,
+    context_length: int,
+    prediction_length: int,
+) -> Dict[str, Dict[str, float]]:
+    from gluonts.dataset.pandas import PandasDataset
+    from gluonts.dataset.split import split
+
+    eligible = {
+        ticker: _prepare_moirai_frame(frame)
+        for ticker, frame in frames.items()
+        if len(frame) >= context_length + prediction_length
+    }
+    if not eligible:
+        return {}
+
+    model = _get_moirai_model(model_size, context_length, prediction_length)
+    ds = PandasDataset(eligible, target=OHLCV_COLS, freq="B")
+    _, test_template = split(ds, offset=-prediction_length)
+    test_data = test_template.generate_instances(
+        prediction_length=prediction_length,
+        windows=1,
+    )
+
+    predictor = model.create_predictor(batch_size=max(1, len(eligible)))
+    forecasts = list(predictor.predict(test_data.input))
+
+    results: Dict[str, Dict[str, float]] = {}
+    for ticker, forecast in zip(eligible.keys(), forecasts):
+        samples = forecast.samples
+        if samples.ndim == 3:
+            close_samples = samples[:, :, CLOSE_IDX]
+        elif samples.ndim == 2:
+            close_samples = samples
+        else:
+            raise ValueError(f"unexpected_moirai_samples_shape:{samples.shape}")
+
+        close_dist_5d = close_samples[:, -1]
+        current_close = float(frames[ticker]["Close"].iloc[-1])
+        if current_close <= 0:
+            continue
+
+        results[ticker] = {
+            "moirai_implied_return_5d": float((np.median(close_dist_5d) - current_close) / current_close),
+            "moirai_implied_volatility": float(np.std(close_dist_5d) / current_close),
+            "moirai_directional_confidence": float(np.mean(close_dist_5d > current_close)),
+            "moirai_regime_uncertainty": float(
+                (np.percentile(close_dist_5d, 75) - np.percentile(close_dist_5d, 25)) / current_close
+            ),
+        }
+
+    return results
+
+
+async def _generate_moirai_forecasts(
+    processed_frames: Dict[str, pd.DataFrame],
+    model_size: str,
+    context_length: int,
+    prediction_length: int,
+) -> tuple[Dict[str, Dict[str, float]], Optional[str]]:
+    try:
+        return await asyncio.to_thread(
+            _infer_moirai_batch,
+            processed_frames,
+            model_size,
+            context_length,
+            prediction_length,
+        ), None
+    except ImportError as exc:
+        return {}, f"moirai_unavailable:{exc.__class__.__name__}:{exc}"
+    except Exception as exc:
+        logger.warning("Moirai Tier 1C forecast failed: %s", exc)
+        return {}, f"moirai_failed:{exc.__class__.__name__}:{exc}"
+
+
+def analyze_processed_ohlcv_frame(ticker: str, df: pd.DataFrame) -> RawOHLCVAnalysis:
+    """Analyze a cleaned OHLCV frame and return a structured Tier 1C report."""
     warnings = []
-    df = preprocess_ohlcv(raw_df)
     close = df["Close"]
     returns = close.pct_change().dropna()
 
@@ -288,25 +396,99 @@ def analyze_ohlcv_frame(ticker: str, raw_df: pd.DataFrame) -> RawOHLCVAnalysis:
     )
 
 
+def analyze_ohlcv_frame(ticker: str, raw_df: pd.DataFrame) -> RawOHLCVAnalysis:
+    """Analyze one raw OHLCV frame without running Moirai batch inference."""
+    return analyze_processed_ohlcv_frame(ticker, preprocess_ohlcv(raw_df))
+
+
 async def generate_ohlcv_analysis(
     raw_ohlcv_map: Dict[str, pd.DataFrame],
+    use_moirai: bool = True,
+    moirai_model_size: str = "small",
+    context_length: int = 252,
+    prediction_length: int = 5,
 ) -> Dict[str, RawOHLCVAnalysis]:
-    """Async batch entry point for already-fetched raw yfinance OHLCV frames."""
+    """Async batch entry point for raw yfinance OHLCV frames."""
     def _run_batch() -> Dict[str, RawOHLCVAnalysis]:
         results: Dict[str, RawOHLCVAnalysis] = {}
+        processed: Dict[str, pd.DataFrame] = {}
         for ticker, frame in raw_ohlcv_map.items():
             try:
-                results[ticker] = analyze_ohlcv_frame(ticker, frame)
+                processed[ticker] = preprocess_ohlcv(frame)
+                results[ticker] = analyze_processed_ohlcv_frame(ticker, processed[ticker])
             except Exception as exc:
                 logger.warning("Tier 1C OHLCV analysis failed for %s: %s", ticker, exc)
+        return results, processed
+
+    results, processed = await asyncio.to_thread(_run_batch)
+
+    if not use_moirai or not processed:
+        if not use_moirai:
+            results = {
+                ticker: report.model_copy(update={"moirai_status": "not_run"})
+                for ticker, report in results.items()
+            }
         return results
 
-    return await asyncio.to_thread(_run_batch)
+    model_name = f"Salesforce/moirai-1.1-R-{moirai_model_size}"
+    forecasts, error = await _generate_moirai_forecasts(
+        processed,
+        moirai_model_size,
+        context_length,
+        prediction_length,
+    )
+
+    updated: Dict[str, RawOHLCVAnalysis] = {}
+    for ticker, report in results.items():
+        warnings = list(report.warnings)
+        if ticker in forecasts:
+            updated[ticker] = report.model_copy(
+                update={
+                    **forecasts[ticker],
+                    "moirai_status": "ok",
+                    "moirai_model": model_name,
+                    "summary_signals": report.summary_signals + ["moirai_forecast_available"],
+                }
+            )
+        else:
+            if error:
+                status = "unavailable" if error.startswith("moirai_unavailable") else "failed"
+                warnings.append(error)
+            else:
+                status = "failed"
+                warnings.append("moirai_failed:insufficient_context_or_no_forecast")
+            updated[ticker] = report.model_copy(
+                update={
+                    "moirai_status": status,
+                    "moirai_model": model_name,
+                    "warnings": warnings,
+                }
+            )
+
+    return updated
+
+
+async def generate_moirai_signals(
+    raw_ohlcv_map: Dict[str, pd.DataFrame],
+    model_size: str = "small",
+    context_length: int = 252,
+    prediction_length: int = 5,
+) -> Dict[str, RawOHLCVAnalysis]:
+    """Compatibility entry point for explicitly Moirai-backed Tier 1C runs."""
+    return await generate_ohlcv_analysis(
+        raw_ohlcv_map,
+        use_moirai=True,
+        moirai_model_size=model_size,
+        context_length=context_length,
+        prediction_length=prediction_length,
+    )
 
 
 async def run_ohlcv_analyzer(
     tickers: Iterable[str],
     lookback_days: int = 730,
+    use_moirai: bool = True,
+    moirai_model_size: str = "small",
 ) -> Dict[str, RawOHLCVAnalysis]:
     """Fetch raw yfinance OHLCV through the vendor layer and run Tier 1C."""
     end = date.today() + timedelta(days=1)
@@ -323,4 +505,8 @@ async def run_ohlcv_analyzer(
 
     pairs = await asyncio.gather(*(_fetch_one(ticker) for ticker in tickers))
     raw_map = {ticker: frame for ticker, frame in pairs if frame is not None and not frame.empty}
-    return await generate_ohlcv_analysis(raw_map)
+    return await generate_ohlcv_analysis(
+        raw_map,
+        use_moirai=use_moirai,
+        moirai_model_size=moirai_model_size,
+    )
