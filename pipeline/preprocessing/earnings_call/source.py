@@ -1,13 +1,11 @@
 """
 Earnings Call Transcript Sources.
-Provides a TranscriptSource interface with multiple concrete implementations:
-- MockTranscriptSource (testing)
+Provides a TranscriptSource interface with concrete implementations:
+- MockTranscriptSource (testing / fallback)
 - FinnhubTranscriptSource (requires API key)
-- Edgar8KTranscriptSource (free, uses SEC EDGAR 8-K filings)
 """
 
 import os
-import re
 import logging
 import requests
 from typing import Optional
@@ -70,106 +68,18 @@ class FinnhubTranscriptSource(TranscriptSource):
         return None
 
 
-class Edgar8KTranscriptSource(TranscriptSource):
-    """
-    Fetches earnings call transcripts from SEC EDGAR 8-K filings.
-    Many companies file transcripts as exhibits to 8-K filings within 24-72 hours.
-    Free, no API key required. SEC mandates a proper User-Agent header.
-    """
-
-    EDGAR_HEADERS = {
-        "User-Agent": "HackArena Research Pipeline contact@example.com",
-        "Accept-Encoding": "gzip, deflate",
-    }
-
-    def _get_cik(self, ticker: str) -> Optional[str]:
-        """Look up CIK from ticker."""
-        try:
-            url = "https://www.sec.gov/files/company_tickers.json"
-            response = requests.get(url, headers=self.EDGAR_HEADERS, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                for entry in data.values():
-                    if entry.get("ticker", "").upper() == ticker.upper():
-                        return str(entry["cik_str"]).zfill(10)
-        except Exception as e:
-            logger.warning(f"CIK lookup failed for {ticker}: {e}")
-        return None
-
-    def fetch_latest_transcript(self, ticker: str) -> Optional[str]:
-        """
-        Search EDGAR for recent 8-K filings that contain earnings call transcripts.
-        """
-        try:
-            # Search for 8-K filings mentioning "earnings call" for this company
-            url = "https://efts.sec.gov/LATEST/search-index"
-            params = {
-                "q": f'"{ticker}" "earnings call"',
-                "forms": "8-K",
-                "dateRange": "custom",
-                "startdt": "2024-01-01",
-            }
-            response = requests.get(url, params=params, headers=self.EDGAR_HEADERS, timeout=15)
-
-            if response.status_code != 200:
-                logger.warning(f"EDGAR 8-K search returned {response.status_code}")
-                return None
-
-            data = response.json()
-            hits = data.get("hits", {}).get("hits", [])
-
-            if not hits:
-                logger.info(f"No 8-K earnings transcripts found for {ticker}")
-                return None
-
-            # Get the first (most recent) hit
-            first_hit = hits[0]
-            source = first_hit.get("_source", {})
-            file_url = source.get("file_url")
-
-            if not file_url:
-                return None
-
-            # Fetch the actual filing
-            filing_url = f"https://www.sec.gov{file_url}" if file_url.startswith("/") else file_url
-            filing_response = requests.get(filing_url, headers=self.EDGAR_HEADERS, timeout=30)
-
-            if filing_response.status_code == 200:
-                # Extract text content (rough extraction)
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(filing_response.text, "lxml")
-                for tag in soup(["script", "style"]):
-                    tag.decompose()
-                text = soup.get_text(separator="\n")
-
-                # Clean up
-                lines = [line.strip() for line in text.split("\n") if line.strip()]
-                cleaned = "\n".join(lines)
-
-                if len(cleaned) > 500:  # Sanity check
-                    return cleaned
-
-        except Exception as e:
-            logger.error(f"Error fetching 8-K transcript for {ticker}: {e}")
-
-        return None
-
-
-def get_transcript_source() -> TranscriptSource:
+def get_transcript_source(source_pref: str = "auto") -> TranscriptSource:
     """
     Factory: selects the best available transcript source.
-    Priority: Finnhub (if key available) > EDGAR 8-K > Mock.
+    Priority: Finnhub (if key available) > Mock.
     """
-    source_pref = os.getenv("TRANSCRIPT_SOURCE", "auto").lower()
+    source_pref = (source_pref or os.getenv("TRANSCRIPT_SOURCE", "auto")).lower()
 
     if source_pref == "mock":
         return MockTranscriptSource()
     elif source_pref == "finnhub":
         return FinnhubTranscriptSource()
-    elif source_pref == "edgar":
-        return Edgar8KTranscriptSource()
     else:  # auto
         if os.getenv("FINNHUB_API_KEY"):
             return FinnhubTranscriptSource()
-        # Try EDGAR 8-K source (free, no key needed)
-        return Edgar8KTranscriptSource()
+        return MockTranscriptSource()

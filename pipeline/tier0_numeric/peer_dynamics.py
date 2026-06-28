@@ -20,17 +20,16 @@ def _discover_peers(ticker_symbol: str, max_peers: int = 5) -> List[str]:
     if ticker_symbol in _peer_cache:
         return _peer_cache[ticker_symbol]
 
-    # Curated fallback for common tickers (used when API peer discovery fails)
+    # Curated fallback for common NSE tickers (yfinance .NS suffix)
     FALLBACK_PEERS = {
-        "AAPL": ["MSFT", "GOOGL", "META", "AMZN"],
-        "MSFT": ["AAPL", "GOOGL", "AMZN", "CRM"],
-        "GOOGL": ["META", "MSFT", "AMZN", "SNAP"],
-        "META": ["GOOGL", "SNAP", "PINS", "MSFT"],
-        "AMZN": ["MSFT", "GOOGL", "WMT", "SHOP"],
-        "TSLA": ["F", "GM", "RIVN", "NIO"],
-        "NVDA": ["AMD", "INTC", "QCOM", "AVGO"],
-        "JPM": ["BAC", "GS", "MS", "C"],
-        "JNJ": ["PFE", "UNH", "MRK", "ABT"],
+        "RELIANCE.NS": ["TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"],
+        "TCS.NS": ["INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
+        "INFY.NS": ["TCS.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
+        "HDFCBANK.NS": ["ICICIBANK.NS", "AXISBANK.NS", "KOTAKBANK.NS", "SBIN.NS"],
+        "ICICIBANK.NS": ["HDFCBANK.NS", "AXISBANK.NS", "KOTAKBANK.NS", "SBIN.NS"],
+        "BHARTIARTL.NS": ["IDEA.NS", "TATAMOTORS.NS", "RELIANCE.NS", "TCS.NS"],
+        "ITC.NS": ["HINDUNILVR.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"],
+        "HINDUNILVR.NS": ["ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"],
     }
 
     info = vendor.get_info(ticker_symbol)
@@ -47,9 +46,8 @@ def _discover_peers(ticker_symbol: str, max_peers: int = 5) -> List[str]:
         _peer_cache[ticker_symbol] = peers
         return peers
 
-    # For now, use the fallback mapping (a production system would query
-    # Polygon's reference endpoint for all tickers in the same GICS sub-industry
-    # and filter by market cap within 1 order of magnitude)
+    # Use sector-aware peer discovery via yfinance info when available;
+    # fall back to curated NSE peer lists for known tickers.
     peers = FALLBACK_PEERS.get(ticker_symbol, [])
     _peer_cache[ticker_symbol] = peers
     return peers

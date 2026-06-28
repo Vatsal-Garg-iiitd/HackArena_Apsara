@@ -54,7 +54,7 @@ class PostgresCache:
                     close DOUBLE PRECISION,
                     volume BIGINT,
                     adjusted_close DOUBLE PRECISION,
-                    source TEXT DEFAULT 'polygon',
+                    source TEXT DEFAULT 'yfinance',
                     retrieved_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (ticker, trade_date)
                 )
@@ -68,7 +68,7 @@ class PostgresCache:
                     statement_type TEXT NOT NULL,
                     field_name TEXT NOT NULL,
                     value DOUBLE PRECISION,
-                    source TEXT DEFAULT 'polygon',
+                    source TEXT DEFAULT 'yfinance',
                     retrieved_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (ticker, period_end, statement_type, field_name)
                 )

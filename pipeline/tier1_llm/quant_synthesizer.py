@@ -65,10 +65,6 @@ async def run_quant_synthesizer(tier0_outputs: List[Tier0Output]) -> List[Dict[s
         if out.options_signals:
             prompt += f"[OPTIONS_SIGNALS] {out.options_signals.model_dump_json()}\n"
 
-        # Institutional flow
-        if out.institutional_flow:
-            prompt += f"[INSTITUTIONAL_FLOW] {out.institutional_flow.model_dump_json()}\n"
-
         # Data quality context
         if out.data_quality:
             prompt += f"[DATA_QUALITY] Score: {out.data_quality.quality_score}, Missing: {out.data_quality.fields_missing}\n"
