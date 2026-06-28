@@ -14,6 +14,8 @@ export async function POST(request: NextRequest) {
 
     const cleanSymbol = symbol.trim().toUpperCase();
 
+    let fallbackReason: "none" | "offline" | "failed" = "none";
+
     try {
       // 1. Run the advanced pipeline for the ticker
       const pipelineRes = await fetch(`${PIPELINE_API_URL}/v1/pipeline/run`, {
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!pipelineRes.ok) {
+        fallbackReason = "failed";
         throw new Error(`Pipeline API returned HTTP ${pipelineRes.status}`);
       }
 
@@ -52,19 +55,22 @@ export async function POST(request: NextRequest) {
         symbol: cleanSymbol,
         mode: requestedMode,
         fallback: false,
+        fallbackReason: "none",
         pipeline: pipelineResult,
         fundamentals: fundamentalsResult
       });
 
-    } catch (apiError) {
+    } catch (apiError: any) {
       console.warn("FastAPI backend is offline or failed. Falling back to mock data.", apiError);
 
+      const reason = fallbackReason === "failed" ? "failed" : "offline";
       // Return high-quality mock data when backend is down
       const mockData = generateMockAnalysis(cleanSymbol, requestedMode);
       return NextResponse.json({
         symbol: cleanSymbol,
         mode: requestedMode,
         fallback: true,
+        fallbackReason: reason,
         pipeline: mockData.pipeline,
         fundamentals: mockData.fundamentals
       });

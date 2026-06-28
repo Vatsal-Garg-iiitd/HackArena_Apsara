@@ -46,63 +46,75 @@ function schemaMessage(message: string) {
 export async function getPortfolioItems() {
   if (!supabase) return { items: [] as PortfolioItem[], error: "Supabase is not configured." };
 
-  const { data, error } = await supabase
-    .from("portfolio_items")
-    .select("*")
-    .order("created_at", { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from("portfolio_items")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  return { items: (data ?? []) as PortfolioItem[], error: error?.message ? schemaMessage(error.message) : null };
+    return { items: (data ?? []) as PortfolioItem[], error: error?.message ? schemaMessage(error.message) : null };
+  } catch (err: any) {
+    return { items: [], error: `Failed to fetch portfolio: ${err.message || err}` };
+  }
 }
 
 export async function addCompanyToPortfolio(company: Company, index: MarketIndex) {
   if (!supabase) return { error: "Supabase is not configured." };
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData.user) {
-    return { error: "Please login before adding stocks to your portfolio." };
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return { error: "Please login before adding stocks to your portfolio." };
+    }
+
+    const config = buildPortfolioConfig(company, index);
+
+    const { error } = await supabase.from("portfolio_items").upsert(
+      {
+        user_id: userData.user.id,
+        symbol: company.symbol,
+        ticker: company.ticker,
+        name: company.name,
+        sector: company.sector,
+        index_key: index.key,
+        index_name: index.name,
+        market_cap: company.marketCap,
+        price: company.price,
+        change: company.change,
+        change_percent: company.changePercent,
+        open: company.open,
+        high: company.high,
+        low: company.low,
+        previous_close: company.previousClose,
+        volume: company.volume,
+        spot_price: config.spotPrice,
+        strike_price: config.strikePrice,
+        risk_free_rate: config.riskFreeRate,
+        expiry_date: config.expiryDate,
+        revenue: config.revenue,
+        health_status: config.healthStatus,
+        health_reason: config.healthReason,
+        source_reference: config.sourceReference,
+        stock_snapshot: company,
+        config,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: "user_id,symbol" }
+    );
+
+    return { error: error?.message ? schemaMessage(error.message) : null };
+  } catch (err: any) {
+    return { error: `Failed to add to portfolio: ${err.message || err}` };
   }
-
-  const config = buildPortfolioConfig(company, index);
-
-  const { error } = await supabase.from("portfolio_items").upsert(
-    {
-      user_id: userData.user.id,
-      symbol: company.symbol,
-      ticker: company.ticker,
-      name: company.name,
-      sector: company.sector,
-      index_key: index.key,
-      index_name: index.name,
-      market_cap: company.marketCap,
-      price: company.price,
-      change: company.change,
-      change_percent: company.changePercent,
-      open: company.open,
-      high: company.high,
-      low: company.low,
-      previous_close: company.previousClose,
-      volume: company.volume,
-      spot_price: config.spotPrice,
-      strike_price: config.strikePrice,
-      risk_free_rate: config.riskFreeRate,
-      expiry_date: config.expiryDate,
-      revenue: config.revenue,
-      health_status: config.healthStatus,
-      health_reason: config.healthReason,
-      source_reference: config.sourceReference,
-      stock_snapshot: company,
-      config,
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: "user_id,symbol" }
-  );
-
-  return { error: error?.message ? schemaMessage(error.message) : null };
 }
 
 export async function removePortfolioItem(symbol: string) {
   if (!supabase) return { error: "Supabase is not configured." };
 
-  const { error } = await supabase.from("portfolio_items").delete().eq("symbol", symbol);
-  return { error: error?.message ? schemaMessage(error.message) : null };
+  try {
+    const { error } = await supabase.from("portfolio_items").delete().eq("symbol", symbol);
+    return { error: error?.message ? schemaMessage(error.message) : null };
+  } catch (err: any) {
+    return { error: `Failed to remove from portfolio: ${err.message || err}` };
+  }
 }

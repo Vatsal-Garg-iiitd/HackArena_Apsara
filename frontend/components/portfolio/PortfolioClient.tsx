@@ -710,7 +710,15 @@ export function PortfolioClient() {
                         <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 flex items-start gap-2 shadow-sm">
                           <AlertTriangle className="h-4.5 w-4.5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
                           <div>
-                            <span className="font-bold">FastAPI Backend Offline:</span> The Python analysis server (port 8765) is offline. Showing high-fidelity simulated analysis. Run <code>uvicorn pipeline.api:app --host 127.0.0.1 --port 8765</code> to connect the live agents.
+                            {symbolData.fallbackReason === "failed" ? (
+                              <>
+                                <span className="font-bold">AI Pipeline Rate-Limited / Failed:</span> The Python analysis server (port 8765) is online, but the backend API call failed (e.g. Gemini API quota limits exceeded). Showing high-fidelity simulated analysis. Check your terminal/server logs.
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-bold">FastAPI Backend Offline:</span> The Python analysis server (port 8765) is offline. Showing high-fidelity simulated analysis. Run <code>uvicorn pipeline.api:app --host 127.0.0.1 --port 8765</code> to connect the live agents.
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
